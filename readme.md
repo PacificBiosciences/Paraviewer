@@ -7,7 +7,7 @@
 Paraviewer reads the result directory from Paraphase and uses the files within (per-sample BAM, JSON, and VCF files) to generate a serverless website with a powerful table viewer and various visulization aids. Paraviewer assists in variant prioritization and haplotype review for the complex genomic regions called by Paraphase.
 
 ### Note: Paraviewer is new software!
-Paraviewer is in an early-release status. We welcome users to try it out and report issues that arise. New features and improvements will be coming soon.
+Paraviewer is in early-release status. We welcome users to try it out and report issues that arise. New features and improvements will be coming soon.
 
 
 ### Overview
@@ -23,7 +23,7 @@ If an experiment is run with trios present and annotated via a pedigree file, th
 
 #### Screenshot of Paraviewer trio visualization (IGV.js):
 
-<h1 align="center"><img width="50%" src="docs/imgs/paraviewer_screenshot.png"/></h1>
+<h1 align="center"><img width="100%" src="docs/imgs/paraviewer_screenshot.png"/></h1>
 
 ## Support information
 Paraviewer is a pre-release software intended for research use only and not for use in diagnostic procedures. 
