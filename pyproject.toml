@@ -1,0 +1,101 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "paraviewer"
+version = "0.1.0"
+description = "command line tool for generating visualizations of outputs from the Paraphase variant caller"
+readme = "readme.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [
+    { name = "Jonathan Belyeu", email = "jbelyeu@pacificbiosciences.com" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: Other/Proprietary License",
+]
+dependencies = [
+    "matplotlib>=3.8.4",
+    "numpy>=2.2.5",
+    "scikit-image>=0.24.0",
+    "cython>=3.0.10",
+    "Jinja2==3.1.5",
+    "tqdm==4.67.1",
+    "requests==2.32.3",
+    "pyyaml==6.0.2",
+    "cachetools==5.5.2",
+    "pysam==0.23.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.5",
+    "pytest-cov",
+    "black",
+    "isort",
+    "mypy",
+    "ruff",
+    "pre-commit",
+]
+
+[project.scripts]
+paraviewer = "paraviewer.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["paraviewer"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "paraviewer",
+    "LICENSE",
+    "readme.md",
+]
+
+[tool.hatch.envs.default]
+dependencies = [
+    "pytest",
+    "pytest-cov",
+]
+
+[tool.hatch.envs.default.scripts]
+test = "pytest {args:tests}"
+test-cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=paraviewer {args:tests}"
+lint = [
+    "black --check .",
+    "isort --check-only .",
+    "mypy .",
+    "ruff check .",
+]
+format = [
+    "black .",
+    "isort .",
+    "ruff check --fix .",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+select = ["E", "F", "B", "I"]
+ignore = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra -q" 

@@ -1,0 +1,16 @@
+cyp21: 
+  realign_region: chr6:32036939-32046284
+f8inv1:
+  realign_region: chrX:155004364-155010935
+f8inv22:
+  realign_region: chrX:154875845-154894776
+gba:
+  realign_region: chr1:155233552-155242284
+hba:
+  realign_region: chr16:171316-176042
+hbb:
+  realign_region: chr11:5224160-5230254
+rpgr:
+  realign_region: chrX:38282861-38289193
+smn1:
+  realign_region: chr5:70062405-70077759

@@ -1,0 +1,64 @@
+.igv-ui-dropdown { cursor: default; position: absolute; top: 0; left: 0; z-index: 2048; border-color: #7F7F7F; border-style: solid; border-width: 1px; font-family: "Open Sans", sans-serif; font-size: small; font-weight: 400; background-color: white; }
+.igv-ui-dropdown > div { overflow-y: auto; overflow-x: hidden; background-color: white; }
+.igv-ui-dropdown > div > div { padding: 4px; width: 100%; overflow-x: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom-color: #7F7F7F; border-bottom-style: solid; border-bottom-width: 1px; background-color: white; }
+.igv-ui-dropdown > div > div:last-child { border-bottom-color: transparent; border-bottom-width: 0; }
+.igv-ui-dropdown > div > div:hover { cursor: pointer; background-color: rgba(0, 0, 0, 0.04); }
+
+.igv-container { position: relative; display: flex; flex-direction: column; flex-wrap: nowrap; justify-content: flex-start; align-items: flex-start; padding-top: 4px; user-select: none; -webkit-user-select: none; -ms-user-select: none; min-height: 160px; }
+.igv-viewport { position: relative; margin-top: 5px; line-height: 1; overflow-x: hidden; overflow-y: hidden; }
+.igv-viewport-content { position: relative; width: 100%; }
+.igv-viewport-content > canvas { position: relative; display: block; }
+
+.igv-column-container { position: relative; display: flex; flex-direction: row; flex-wrap: nowrap; justify-content: flex-start; align-items: stretch; width: 100%; }
+.igv-column-shim { width: 1px; margin-left: 2px; margin-right: 2px; background-color: #545453; }
+.igv-axis-column { position: relative; display: flex; flex-direction: column; flex-wrap: nowrap; justify-content: flex-start; align-items: flex-start; box-sizing: border-box; height: 100%; width: 50px; }
+.igv-axis-column > div { position: relative; margin-top: 5px; width: 100%; }
+.igv-axis-column > div > div { z-index: 512; position: absolute; top: 8px; left: 8px; width: fit-content; height: fit-content; background-color: transparent; display: grid; align-items: start; justify-items: center; }
+.igv-axis-column > div > div > input { display: block; margin: unset; cursor: pointer; }
+
+.igv-column { position: relative; position: relative; display: flex; flex-direction: column; flex-wrap: nowrap; justify-content: flex-start; align-items: flex-start; box-sizing: border-box; height: 100%; }
+.igv-sample-info-column { position: relative; display: flex; flex-direction: column; flex-wrap: nowrap; justify-content: flex-start; align-items: flex-start; box-sizing: border-box; height: 100%; }
+.igv-sample-name-column { position: relative; display: flex; flex-direction: column; flex-wrap: nowrap; justify-content: flex-start; align-items: flex-start; box-sizing: border-box; height: 100%; }
+
+.igv-scrollbar-column { position: relative; display: flex; flex-direction: column; flex-wrap: nowrap; justify-content: flex-start; align-items: flex-start; box-sizing: border-box; height: 100%; width: 14px; }
+.igv-scrollbar-column > div { position: relative; margin-top: 5px; width: 14px; }
+.igv-scrollbar-column > div > div { cursor: pointer; position: absolute; top: 0; left: 2px; width: 8px; border-width: 1px; border-style: solid; border-color: #c4c4c4; border-top-left-radius: 4px; border-top-right-radius: 4px; border-bottom-left-radius: 4px; border-bottom-right-radius: 4px; }
+.igv-scrollbar-column > div > div:hover { background-color: #c4c4c4; }
+
+.igv-track-drag-column { position: relative; display: flex; flex-direction: column; flex-wrap: nowrap; justify-content: flex-start; align-items: flex-start; box-sizing: border-box; height: 100%; width: 12px; background-color: white; }
+.igv-track-drag-column > .igv-track-drag-handle { z-index: 512; position: relative; cursor: pointer; margin-top: 5px; width: 100%; border-style: solid; border-width: 0; border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
+.igv-track-drag-column .igv-track-drag-handle-color { background-color: #c4c4c4; }
+.igv-track-drag-column .igv-track-drag-handle-hover-color { background-color: #787878; }
+.igv-track-drag-column .igv-track-drag-handle-selected-color { background-color: #0963fa; }
+.igv-track-drag-column > .igv-track-drag-shim { position: relative; margin-top: 5px; width: 100%; border-style: solid; border-width: 0; }
+
+.igv-gear-menu-column { position: relative; display: flex; flex-direction: column; flex-wrap: nowrap; justify-content: flex-start; align-items: flex-start; box-sizing: border-box; height: 100%; width: 28px; }
+.igv-gear-menu-column > div { display: flex; flex-direction: column; flex-wrap: nowrap; justify-content: flex-start; align-items: center; margin-top: 5px; width: 100%; background: white; }
+.igv-gear-menu-column > div > div { position: relative; margin-top: 4px; width: 16px; height: 16px; color: #7F7F7F; }
+.igv-gear-menu-column > div > div:hover { cursor: pointer; color: #444; }
+
+.igv-vertical-center { margin: 0 !important; top: 50% !important; -ms-transform: translateY(-50%) !important; transform: translateY(-50%) !important; }
+
+/* IGV Modal Styles */
+#igv-modal .modal-dialog {
+    max-width: 95vw !important;
+    width: 95vw !important;
+    margin: 1.75rem auto;
+}
+
+#igv-modal .modal-content {
+    height: 90vh !important;
+    width: 100% !important;
+    max-width: none !important;
+}
+
+#igv-modal .modal-body {
+    height: calc(90vh - 56px) !important;
+    padding: 0;
+    width: 100% !important;
+}
+
+#igv-viewer {
+    height: 100%;
+    width: 100%;
+} 
