@@ -23,7 +23,6 @@ from typing import Dict, List, Optional
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
-logging.getLogger("matplotlib.font_manager").disabled = True
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)
 
 
