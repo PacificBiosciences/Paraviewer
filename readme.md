@@ -27,8 +27,11 @@ If an experiment is run with trios present and annotated via a pedigree file, th
 
 ### Demos
 Want to try out the websites from Paraviewer? We've prepared two demo sites:
-* [WGS Demo](https://pacificbiosciences.github.io/ParaviewerWGSDemo): 22 samples from the Platinum Pedigree cohort. 5 regions are included ([GBA](https://github.com/PacificBiosciences/paraphase/blob/main/docs/GBA.md), [NEB](https://github.com/PacificBiosciences/paraphase/blob/main/docs/NEB.md), [PMS2](https://github.com/PacificBiosciences/paraphase/blob/main/docs/PMS2.md), [RCCX](https://github.com/PacificBiosciences/paraphase/blob/main/docs/RCCX.md), [SMN1](https://github.com/PacificBiosciences/paraphase/blob/main/docs/SMN1_SMN2.md))
-* [PureTarget Carrier Panel Demo](https://pacificbiosciences.github.io/ParaviewerPTCPDemo): 19 [PureTarget Carrier Panel](https://www.pacb.com/wp-content/uploads/Application-note-Consolidate-challenging-genes-with-PureTarget-carrier-screen-panel.pdf) samples from Coriell with variants in the CYP21 (part of RCCX) or SMN regions.
+* [WGS Demo](https://pacificbiosciences.github.io/ParaviewerWGSDemo):
+  * 22 samples from the Platinum Pedigree cohort.
+  * 5 regions are included ([GBA](https://github.com/PacificBiosciences/paraphase/blob/main/docs/GBA.md), [NEB](https://github.com/PacificBiosciences/paraphase/blob/main/docs/NEB.md), [PMS2](https://github.com/PacificBiosciences/paraphase/blob/main/docs/PMS2.md), [RCCX](https://github.com/PacificBiosciences/paraphase/blob/main/docs/RCCX.md), [SMN1](https://github.com/PacificBiosciences/paraphase/blob/main/docs/SMN1_SMN2.md))
+* [PureTarget Carrier Panel Demo](https://pacificbiosciences.github.io/ParaviewerPTCPDemo):
+  * 19 [PureTarget Carrier Panel](https://www.pacb.com/wp-content/uploads/Application-note-Consolidate-challenging-genes-with-PureTarget-carrier-screen-panel.pdf) samples from Coriell with variants in the CYP21 (part of RCCX) or SMN regions.
 
 #### Firefox note:
 Issues may be encountered in Firefox when loading these demo sites. We recommend the Chrome browser.
