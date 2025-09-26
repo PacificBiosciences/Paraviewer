@@ -1,13 +1,34 @@
 # User Guide
 
 ## Installation
-Paraviewer requires conda/mamba installations of pip and IGV. We recommend creating a dedicated mamba environment for Paraviewer. Paraviewer can then be cloned and installed from source:
+### Install with Conda/Mamba
+Paraviewer depends on Conda packages, so we recommend installing Paraviewer via mamba as well. 
+We recommend creating a dedicated mamba environment for Paraviewer:
+```bash
+mamba create -n paraviewer_env igv pip "python>=3.10"
+mamba activate paraviewer_env
+mamba install -y paraviewer -c bioconda
+```
 
+### Installation from source
+
+Paraviewer requires conda/mamba installations of pip and IGV even when installing from source.
+We recommend creating a dedicated mamba environment for Paraviewer.
+
+Paraviewer can then be cloned and installed from source:
 ```bash
 mamba create -n paraviewer_env igv pip "python>=3.10"
 mamba activate paraviewer_env
 git clone https://github.com/PacificBiosciences/Paraviewer.git
 cd Paraviewer
+pip install .
+```
+
+Or downloaded from the [GitHub Releases](https://github.com/PacificBiosciences/Paraviewer/releases) page, unzipped, and installed:
+```bash
+wget https://github.com/PacificBiosciences/Paraviewer/archive/refs/tags/v0.1.0.tar.gz
+tar -xzvf v0.1.0.tar.gz
+cd Paraviewer-0.1.0/
 pip install .
 ```
 
