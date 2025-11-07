@@ -145,7 +145,7 @@ def make_trio_table_entries(
         )
         image_path = path.join(
             IMAGES_PATH.format(sample=trio.IndividualID + "-trio"),
-            f"{trio.IndividualID + "-trio"}_{region}.png",
+            f"{trio.IndividualID + '-trio'}_{region}.png",
         )
 
         trio_entries.append(
