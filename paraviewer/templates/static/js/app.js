@@ -27,10 +27,16 @@ let variantCount;
 let specialInfoFilterActive = false;
 let showHelpActive = false;
 let currentSexFilterValue = '';
+let modalKeyPressHandler = null;
 
 // plot constraints
 const plotw = 585;
 const ploth = 150;
+
+// Table scroll: reserve this much viewport height for navbar + table head + bottom bar
+const TABLE_SCROLL_VIEWPORT_OFFSET_PX = 230;
+// Extra offset when help panel is visible so the bottom bar stays in view
+const TABLE_SCROLL_OFFSET_WITH_HELP_PX = 650;
 
 // Wait for DOM to be fully loaded before initializing
 document.addEventListener('DOMContentLoaded', function () {
@@ -246,43 +252,6 @@ function setupSexDropdown() {
     };
 }
 
-function handleKeyPress(event) {
-    // If no viewer is active, don't do anything
-    if (!currentViewer) return;
-
-    // Prevent default scrolling behavior for left/right keys
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-        event.preventDefault();
-
-        const current = $('tr.selected');
-        if (!current.length) return;  // No row is selected
-
-        const prev = current.prev();
-        const next = current.next();
-
-        try {
-            if (event.key === 'ArrowLeft' && prev.length > 0) {
-                currentViewer.destroy();
-                currentViewer = null;
-                table_click(prev[0], variant_table);
-            } else if (event.key === 'ArrowRight' && next.length > 0) {
-                currentViewer.destroy();
-                currentViewer = null;
-                table_click(next[0], variant_table);
-            }
-        } catch (error) {
-            console.error("Error handling key navigation:", error);
-            if (currentViewer) {
-                try {
-                    currentViewer.destroy();
-                } catch (e) { /* ignore error during cleanup */ }
-                currentViewer = null;
-            }
-            document.body.classList.remove('viewer-open');
-        }
-    }
-}
-
 function showImageFromHash() {
     if (window.location.hash) {
         try {
@@ -339,8 +308,22 @@ function showImageFromHash() {
     }
 }
 
-// Function to handle Quick view button clicks
-function quickViewImage(chrom, start, end, sample, imagePath, event) {
+/**
+ * Escape a string for safe use inside an HTML double-quoted attribute.
+ * Prevents OrographerHTML path from breaking onclick.
+ */
+function escapeHtmlAttr(s) {
+    if (s == null) return '';
+    const t = String(s).trim();
+    return t
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+// Function to handle View it button clicks
+function quickViewImage(chrom, start, end, sample, orographerHtmlPath, event) {
     event.preventDefault();
     event.stopPropagation();
     
@@ -361,13 +344,76 @@ function quickViewImage(chrom, start, end, sample, imagePath, event) {
     if (rowIndex >= 0) {
         table_click(rowIndex, variant_table);
     } else {
-        console.warn("Could not find matching row for Quick view");
+        console.warn("Could not find matching row for View it");
     }
 }
 
+/**
+ * Check if a row represents a trio entry.
+ * Trio entries have Sample name ending with '-trio'.
+ */
+function isTrioEntry(row) {
+    return !!(row.Sample && row.Sample.endsWith('-trio'));
+}
+
+/**
+ * Parse OrographerHTML field - returns array of paths.
+ * Single path (string) yields one-element array for consistent handling.
+ */
+function parseOrographerPaths(htmlField) {
+    if (!htmlField) {
+        return [];
+    }
+    const trimmed = htmlField.trim();
+    return [trimmed];
+}
+
+/**
+ * Display single plot (used for both single-sample and trio; trio is one HTML with three BAMs).
+ */
+function showSinglePlot(path, row) {
+    const trioContainer = document.querySelector('.orographer-trio-container');
+    const paternalWrapper = document.getElementById('orographer-plot-paternal');
+    const maternalWrapper = document.getElementById('orographer-plot-maternal');
+    const probandWrapper = document.getElementById('orographer-plot-proband');
+    const probandIframe = document.getElementById('orographer-iframe-proband');
+
+    if (!probandWrapper || !probandIframe) {
+        console.error("Proband plot wrapper or iframe not found");
+        return;
+    }
+
+    // Add single-plot class to container for CSS styling
+    if (trioContainer) {
+        trioContainer.classList.add('single-plot');
+    }
+
+    // Hide paternal and maternal wrappers and clear their iframes so they don't load the parent page
+    const paternalIframe = document.getElementById('orographer-iframe-paternal');
+    const maternalIframe = document.getElementById('orographer-iframe-maternal');
+    if (paternalWrapper) {
+        paternalWrapper.classList.add('hidden');
+    }
+    if (maternalWrapper) {
+        maternalWrapper.classList.add('hidden');
+    }
+    if (paternalIframe) {
+        paternalIframe.src = 'about:blank';
+    }
+    if (maternalIframe) {
+        maternalIframe.src = 'about:blank';
+    }
+
+    // Show only proband wrapper
+    probandWrapper.classList.remove('hidden');
+
+    // Set iframe source
+    probandIframe.src = path;
+}
+
 const table_click = (selection, table) => {
-    // Ensure we have a valid selection before proceeding
-    if (!selection || !table) {
+    // Ensure we have a valid selection before proceeding (allow row index 0)
+    if (selection == null || !table) {
         console.warn("Invalid selection");
         return;
     }
@@ -396,7 +442,7 @@ const table_click = (selection, table) => {
     }
 
     // Check if we have a valid row with the required properties
-    if (!row.Chrom || !row.Start || !row.End || !row.Sample || !row.Image) {
+    if (!row.Chrom || !row.Start || !row.End || !row.Sample || !row.OrographerHTML) {
         console.warn("Selected row is missing required data");
         return;
     }
@@ -410,115 +456,125 @@ const table_click = (selection, table) => {
         $(rowNode).addClass('selected');
     }
 
-    // Get references to adjacent rows for navigation buttons
     const currentRowIndex = rowIndex;
-    const hasPrevRow = currentRowIndex > 0;
-    const hasNextRow = currentRowIndex < table.rows().count() - 1;
+
+    // Navigation should follow the currently applied table ordering/filters.
+    const getAppliedRowIndexes = () => table.rows({ order: 'applied', search: 'applied' }).indexes().toArray();
+    const getAdjacentRowIndex = (delta) => {
+        const rowIndexes = getAppliedRowIndexes();
+        const pos = rowIndexes.indexOf(currentRowIndex);
+        if (pos === -1) {
+            return null;
+        }
+        const nextPos = pos + delta;
+        if (nextPos < 0 || nextPos >= rowIndexes.length) {
+            return null;
+        }
+        return rowIndexes[nextPos];
+    };
 
     // Update URL hash with row information including sample
     window.history.pushState(null, '',
         `#${row.Chrom}:${row.Start}-${row.End}:${row.Sample}`);
 
-    // Create a new Image object
-    let img = new Image();
-    img.src = row.Image;
-
-    img.onerror = function () {
-        console.error(`Image not found: ${img.src}`);
+    // Show orographer HTML in modal
+    const orographerModal = document.getElementById('orographer-modal');
+    const orographerModalLabel = document.getElementById('orographer-modal-label');
+    
+    if (!orographerModal || !orographerModalLabel) {
+        console.error("Orographer modal elements not found");
+        return;
+    }
+    
+    // Parse OrographerHTML paths
+    const paths = parseOrographerPaths(row.OrographerHTML);
+    const isTrio = isTrioEntry(row);
+    
+    // Update modal title
+    const sampleName = row.Sample || 'Unknown';
+    const regionName = row.Region || 'Unknown';
+    if (isTrio) {
+        orographerModalLabel.textContent = `Orographer Plot for Trio: ${sampleName}, Region: ${regionName}`;
+    } else {
+        orographerModalLabel.textContent = `Orographer Plot for Sample: ${sampleName}, Region: ${regionName}`;
+    }
+    
+    // Single path for both single-sample and trio (trio is one HTML with three BAMs)
+    if (paths.length >= 1) {
+        showSinglePlot(paths[0], row);
+    } else {
+        console.warn("No orographer path for row");
+        return;
+    }
+    
+    $(orographerModal).modal('show');
+    
+    const navigateToIndex = function (targetIndex) {
+        if (targetIndex < 0 || targetIndex >= variant_table.rows().count()) {
+            return;
+        }
+        table_click(targetIndex, variant_table);
     };
 
-    img.onload = function () {
-        // Image loaded successfully
+    const prevIndex = getAdjacentRowIndex(-1);
+    const nextIndex = getAdjacentRowIndex(1);
+    const hasPrevRow = prevIndex !== null;
+    const hasNextRow = nextIndex !== null;
+
+    // Set up keyboard navigation handlers
+    const handleModalKeyPress = function(event) {
+        if (event.key === 'ArrowLeft' && hasPrevRow) {
+            event.preventDefault();
+            if (prevIndex !== null) {
+                navigateToIndex(prevIndex);
+            }
+        } else if (event.key === 'ArrowRight' && hasNextRow) {
+            event.preventDefault();
+            if (nextIndex !== null) {
+                navigateToIndex(nextIndex);
+            }
+        } else if (event.key === 'Escape') {
+            $(orographerModal).modal('hide');
+        }
     };
+    
+    // Replace any previous modal key handler to avoid stale navigation closures.
+    if (modalKeyPressHandler) {
+        document.removeEventListener('keydown', modalKeyPressHandler);
+    }
+    modalKeyPressHandler = handleModalKeyPress;
+    document.addEventListener('keydown', modalKeyPressHandler);
+    document.body.classList.add('viewer-open');
 
-    // Create and configure the viewer
-    let viewer = new Viewer(img, {
-        hidden: function () {
-            document.removeEventListener('keydown', handleKeyPress);
-            currentViewer = null;
-            viewer.destroy();
-
-            // Re-enable default browser keyboard behavior when viewer is closed
-            document.body.classList.remove('viewer-open');
-        },
-        title: function () {
-            return `${row.Sample} - ${row.Region} - ${row.Chrom}:${row.Start}-${row.End}`;
-        },
-        shown: function () {
-            // Disable default browser keyboard behavior when viewer is open
-            document.body.classList.add('viewer-open');
-        },
-        toolbar: {
-            zoomIn: 4,
-            zoomOut: 4,
-            oneToOne: 4,
-            reset: 4,
-            prev: {
-                show: hasNextRow,  // Show "prev" button when there's a next row
-                size: "large",
-                click: function () {
-                    try {
-                        if (!hasNextRow) return;
-
-                        viewer.destroy();
-                        currentViewer = null;
-
-                        // Get the next row using DataTables API and DOM element
-                        const nextRow = $(variant_table.row(currentRowIndex + 1).node());
-                        if (nextRow.length) {
-                            table_click(nextRow[0], variant_table);
-                        }
-                    } catch (error) {
-                        console.error("Error navigating to next image:", error);
-                        // Try to clean up
-                        try {
-                            viewer.destroy();
-                        } catch (e) { /* ignore error during cleanup */ }
-                        currentViewer = null;
-                    }
-                }
-            },
-            play: { show: false },
-            next: {
-                show: hasPrevRow,  // Show "next" button when there's a previous row
-                size: "large",
-                click: function () {
-                    try {
-                        if (!hasPrevRow) return;
-
-                        viewer.destroy();
-                        currentViewer = null;
-
-                        // Get the previous row using DataTables API and DOM element
-                        const prevRow = $(variant_table.row(currentRowIndex - 1).node());
-                        if (prevRow.length) {
-                            table_click(prevRow[0], variant_table);
-                        }
-                    } catch (error) {
-                        console.error("Error navigating to previous image:", error);
-                        // Try to clean up
-                        try {
-                            viewer.destroy();
-                        } catch (e) { /* ignore error during cleanup */ }
-                        currentViewer = null;
-                    }
-                }
-            },
-            rotateLeft: { show: false },
-            rotateRight: { show: false },
-            flipHorizontal: { show: false },
-            flipVertical: { show: false },
-        },
-        transition: false,
-        navbar: false,
+    $(orographerModal).off('hidden.bs.modal');
+    $(orographerModal).on('hidden.bs.modal', function() {
+        if (modalKeyPressHandler) {
+            document.removeEventListener('keydown', modalKeyPressHandler);
+            modalKeyPressHandler = null;
+        }
+        document.body.classList.remove('viewer-open');
+        // Clear all iframe sources (use about:blank to avoid loading parent page into iframes)
+        const paternalIframe = document.getElementById('orographer-iframe-paternal');
+        const maternalIframe = document.getElementById('orographer-iframe-maternal');
+        const probandIframe = document.getElementById('orographer-iframe-proband');
+        if (paternalIframe) {
+            paternalIframe.src = 'about:blank';
+        }
+        if (maternalIframe) {
+            maternalIframe.src = 'about:blank';
+        }
+        if (probandIframe) {
+            probandIframe.src = 'about:blank';
+        }
     });
-
-    // Add the event listener when viewer is shown
-    currentViewer = viewer;
-    document.addEventListener('keydown', handleKeyPress);
-
-    // Show the viewer
-    viewer.show();
+    
+    // Store current viewer state (for compatibility with existing code)
+    currentViewer = {
+        destroy: function() {
+            $(orographerModal).modal('hide');
+        }
+    };
+    
 }
 
 // Function to create filterable column definitions
@@ -546,7 +602,7 @@ function build_table(data) {
     );
 
     let cols = [
-        { data: null, title: 'Quick view', defaultContent: '' },
+        { data: null, title: 'View it', defaultContent: '' },
         { data: 'Chrom', title: 'Chrom' },
         { data: 'Start', title: 'Start' },
         { data: 'End', title: 'End' },
@@ -558,22 +614,14 @@ function build_table(data) {
         { data: 'MaternalID', title: 'Maternal ID', visible: window.appData.has_pedigree_columns.MaternalID },
         { data: 'Sex', title: 'Sex', visible: window.appData.has_pedigree_columns.Sex },
         { data: 'Phenotype', title: 'Phenotype', visible: window.appData.has_pedigree_columns.Phenotype },
-        { data: null, title: 'View Trio', defaultContent: '', visible: hasTrioRecords },
-        { data: null, title: 'Open IGV', defaultContent: '' },
-        { data: null, title: 'IGV Session', defaultContent: '' }
+        { data: null, title: 'View Trio', defaultContent: '', visible: hasTrioRecords }
     ]
 
-    variant_table = $("#variant-table").DataTable({
+    const isSmallDataset = data.length <= 20;
+    const dtOptions = {
         data: data,
         columns: cols,
         deferRender: true,
-        scrollY: '80vh',
-        scrollCollapse: true,
-        scroller: {
-            loadingIndicator: true,
-            displayBuffer: 20,
-            serverWait: 100
-        },
         info: true,
         buttons: [
             {
@@ -616,7 +664,8 @@ function build_table(data) {
         dom: 'Brti',
         initComplete: function () {
             $('.dt-buttons').hide();
-            
+            const api = this.api();
+
             // Synchronize header and body scroll for horizontal scrolling
             const scrollBody = document.querySelector('#variant-table_wrapper .dataTables_scrollBody');
             const scrollHead = document.querySelector('#variant-table_wrapper .dataTables_scrollHead');
@@ -632,7 +681,64 @@ function build_table(data) {
                     scrollBody.scrollLeft = scrollHead.scrollLeft;
                 });
             }
-            
+
+            // Delegate Special Info hover to tbody so recycled Scroller rows use current row data
+            const tableBody = $('#variant-table tbody');
+            tableBody.off('mousemove.paraviewerInfo mouseleave.paraviewerInfo');
+            tableBody.on('mousemove.paraviewerInfo', 'tr.has-info-dropdown', function (e) {
+                $('#info-popup').remove();
+                const rowData = variant_table.row(this).data();
+                if (!rowData || !rowData.SpecialInfo) return;
+                const dropdownContent = document.createElement('div');
+                dropdownContent.id = 'info-popup';
+                dropdownContent.className = 'info-dropdown-content';
+                dropdownContent.style.maxWidth = '600px';
+                dropdownContent.style.whiteSpace = 'normal';
+                dropdownContent.style.wordBreak = 'break-word';
+                dropdownContent.innerHTML = `
+                    <h6>Special Info:</h6>
+                    <table class="special-info-table">
+                        ${rowData.SpecialInfo.split(';').filter(item => item.trim()).map(infoRow => {
+                            const cells = infoRow.split(',').map(cell => cell.trim());
+                            return `<tr>${cells.map(cell => `<td>${cell}</td>`).join('')}</tr>`;
+                        }).join('')}
+                    </table>
+                `;
+                document.body.appendChild(dropdownContent);
+                const dropdown = $('#info-popup');
+                const positionModal = (el, x, y) => {
+                    el.css({ display: 'block', left: '-9999px', top: '-9999px' });
+                    const rect = el[0].getBoundingClientRect();
+                    const vp = { w: window.innerWidth, h: window.innerHeight };
+                    const left = x + rect.width > vp.w ? x - rect.width - 10 : x + 10;
+                    const top = y + rect.height > vp.h ? y - rect.height - 10 : y + 10;
+                    el.css({ left: Math.max(10, left) + 'px', top: Math.max(10, top) + 'px' });
+                };
+                positionModal(dropdown, e.pageX, e.pageY);
+            });
+            tableBody.on('mouseleave.paraviewerInfo', 'tr.has-info-dropdown', function () {
+                $('#info-popup').remove();
+            });
+
+            // Scroller can underfill the viewport on first paint if measurements happen
+            // before final layout settles. Force a post-init refresh pass.
+            if (!isSmallDataset) {
+                const refreshScrollerViewport = () => {
+                    api.columns.adjust();
+                    api.draw(false);
+
+                    // Nudge once at top to trigger Scroller row fill after initial layout.
+                    if (scrollBody && scrollBody.scrollTop === 0) {
+                        scrollBody.scrollTop = 1;
+                        scrollBody.scrollTop = 0;
+                    }
+                };
+
+                requestAnimationFrame(refreshScrollerViewport);
+                setTimeout(refreshScrollerViewport, 250);
+                window.addEventListener('load', refreshScrollerViewport, { once: true });
+            }
+
             setTimeout(function () {
                 showImageFromHash();
             }, 200);
@@ -673,7 +779,7 @@ function build_table(data) {
         `
         },
         columnDefs: [
-            // Quick view button column
+            // View it button column
             {
                 targets: 0,
                 render: function (data, type, row) {
@@ -684,8 +790,8 @@ function build_table(data) {
                         return `<div class="quick-view-container">
                                     ${infoIndicator}
                                     <button class="btn btn-sm btn-outline-primary quick-view-btn" 
-                                        onclick="quickViewImage('${row.Chrom}', ${row.Start}, ${row.End}, '${row.Sample}', '${row.Image}', event)"
-                                        title="Quick view image">
+                                        onclick="quickViewImage('${escapeHtmlAttr(row.Chrom)}', ${row.Start}, ${row.End}, '${escapeHtmlAttr(row.Sample)}', '${escapeHtmlAttr(row.OrographerHTML)}', event)"
+                                        title="View it orographer plot">
                                         <i class="fas fa-eye"></i>
                                     </button>
                                 </div>`;
@@ -742,125 +848,33 @@ function build_table(data) {
                 className: 'text-center',
                 orderable: false,
                 searchable: false
-            },
-            // Special case for IGV columns
-            {
-                targets: 13,  // Open IGV column
-                render: function (data, type, row) {
-                    if (type === 'display') {
-                        const isLocalFile = window.location.protocol === 'file:';
-                        const titleText = isLocalFile ?
-                            'Select project directory to view IGV (required due to browser security restrictions)' :
-                            'Open IGV with BAM track';
-
-                        return `<button class="btn btn-sm btn-outline-primary" 
-                                    onclick="openIGV('${row.Chrom}', ${row.Start}, ${row.End}, '${row.BAM}', event)"
-                                    title="${titleText}">
-                                    <i class="fas fa-external-link-alt"></i>
-                                </button>`;
-                    }
-                    return '';
-                },
-                className: 'text-center',
-                orderable: false,
-                searchable: false
-            },
-            {
-                targets: 14,  // IGV Session column
-                render: function (data, type, row) {
-                    if (type === 'display') {
-                        if (row.IGVSession) {
-                            const isTrio = row.Sample.endsWith('-trio');
-                            if (isTrio) {
-                                return `<button class="btn btn-sm btn-outline-primary igv-download-btn" 
-                                            onclick="downloadFile('${row.IGVSession}', event)" 
-                                            title="Download IGV Session File">
-                                            <i class="fas fa-download"></i> IGV
-                                        </button>`;
-                            } else {
-                                return `<div class="btn-group btn-group-sm">
-                                            <button class="btn btn-sm btn-outline-primary igv-download-btn" 
-                                                onclick="downloadFile('${row.IGVSession}', event)" 
-                                                title="Download IGV Session File">
-                                                <i class="fas fa-download"></i> IGV
-                                            </button>
-                                            <button class="btn btn-sm btn-outline-primary" 
-                                                onclick="downloadFile('${row.BAM}', event)" 
-                                                title="Download BAM File">
-                                                <i class="fas fa-download"></i> BAM
-                                            </button>
-                                            <button class="btn btn-sm btn-outline-primary" 
-                                                onclick="downloadFile('${row.BAI}', event)" 
-                                                title="Download BAI File">
-                                                <i class="fas fa-download"></i> BAI
-                                            </button>
-                                        </div>`;
-                            }
-                        }
-                        return '';
-                    }
-                    return '';
-                },
-                className: 'text-center',
-                orderable: false,
-                searchable: false
             }
         ],
         lengthChange: false,
         order: [[1, 'asc'], [2, 'asc']],
-        rowId: function (data) {
-            return `row-${data.Chrom}-${data.Start}-${data.End}-${data.Sample.replace(/\s+/g, '-')}`;
-        },
-        createdRow: function (row, data, dataIndex) {
-            if (data.SpecialInfo) {
-                $(row).addClass('has-info-dropdown');
-
-                $(row).on('mousemove', function (e) {
-                    $('#info-popup').remove();
-
-                    const dropdownContent = document.createElement('div');
-                    dropdownContent.id = 'info-popup';
-                    dropdownContent.className = 'info-dropdown-content';
-                    dropdownContent.style.maxWidth = '600px';  // Double the default max-width
-                    dropdownContent.style.whiteSpace = 'normal';  // Allow text to wrap
-                    dropdownContent.style.wordBreak = 'break-word';  // Break long words if needed
-                    dropdownContent.innerHTML = `
-                        <h6>Special Info:</h6>
-                        <table class="special-info-table">
-                            ${data.SpecialInfo.split(';').filter(item => item.trim()).map(row => {
-                        const cells = row.split(',').map(cell => cell.trim());
-                        return `<tr>${cells.map(cell => `<td>${cell}</td>`).join('')}</tr>`;
-                    }).join('')}
-                        </table>
-                    `;
-
-                    document.body.appendChild(dropdownContent);
-
-                    const dropdown = $('#info-popup');
-                    
-                    // Smart positioning function
-                    const positionModal = (element, x, y) => {
-                        element.css({ display: 'block', left: '-9999px', top: '-9999px' });
-                        const rect = element[0].getBoundingClientRect();
-                        const viewport = { w: window.innerWidth, h: window.innerHeight };
-                        
-                        const left = x + rect.width > viewport.w ? x - rect.width - 10 : x + 10;
-                        const top = y + rect.height > viewport.h ? y - rect.height - 10 : y + 10;
-                        
-                        element.css({ left: Math.max(10, left) + 'px', top: Math.max(10, top) + 'px' });
-                    };
-                    
-                    positionModal(dropdown, e.pageX, e.pageY);
-                });
-
-                $(row).on('mouseleave', function () {
-                    $('#info-popup').remove();
-                });
-            }
+        rowCallback: function (row, data) {
+            $(row).toggleClass('has-info-dropdown', !!data.SpecialInfo);
         }
-    });
+    };
 
-    // Row click handler removed - now using Quick view buttons instead
+    if (!isSmallDataset) {
+        // Scroller requires DataTables paging to be enabled.
+        // If paging is off, Scroller's virtual window never advances.
+        dtOptions.paging = true;
+        dtOptions.pageLength = 25;
+        // Single scrollbar: table height leaves room for bottom bar (and help panel when visible).
+        const offsetPx = showHelpActive ? TABLE_SCROLL_OFFSET_WITH_HELP_PX : TABLE_SCROLL_VIEWPORT_OFFSET_PX;
+        dtOptions.scrollY = "calc(100vh - " + offsetPx + "px)";
+        dtOptions.scrollCollapse = true;
+        dtOptions.scroller = {
+            loadingIndicator: true,
+            displayBuffer: 2
+        };
+    }
+
+    variant_table = $("#variant-table").DataTable(dtOptions);
+
+    // Row click handler removed - now using View it buttons instead
 
     // Handle context menu (right-click)
     setupContextMenu();
@@ -887,7 +901,7 @@ function tsv_button_click() {
         ]);
     });
 
-    // Create TSV content (excluding Quick view column)
+    // Create TSV content (excluding View it column)
     let tsvContent = "Chrom\tStart\tEnd\tRegion\tSample\tCopy Number\tFamily ID\tPaternal ID\tMaternal ID\tSex\tPhenotype\tSpecial Info\n";
     filteredData.forEach(row => {
         tsvContent += row.join('\t') + '\n';
@@ -927,7 +941,7 @@ function copy_button_click() {
         ]);
     });
 
-    // Create TSV content for clipboard (excluding Quick view column)
+    // Create TSV content for clipboard (excluding View it column)
     let tsvContent = "Chrom\tStart\tEnd\tRegion\tSample\tCopy Number\tFamily ID\tPaternal ID\tMaternal ID\tSex\tPhenotype\tSpecial Info\n";
     filteredData.forEach(row => {
         tsvContent += row.join('\t') + '\n';
@@ -1057,18 +1071,20 @@ function setupContextMenu() {
         const tr = $(e.target).closest('tr')[0];
         if (!tr) return;
 
+        const rowIndex = variant_table.row(tr).index();
+        if (rowIndex === undefined) return;
+
         menu.style.cssText = `top: ${e.pageY}px; left: ${e.pageX}px; display: block;`;
-        menu.dataset.rowId = tr.id;
+        menu.dataset.rowIndex = rowIndex;
     });
 
     document.addEventListener('click', () => menu.style.display = 'none');
 
     // Copy Page URL with hash
     copyPageUrlItem.addEventListener('click', () => {
-        const tr = document.getElementById(menu.dataset.rowId);
-        if (!tr) return;
-
-        const rowData = variant_table.row(tr).data();
+        const rowIndex = parseInt(menu.dataset.rowIndex, 10);
+        if (Number.isNaN(rowIndex)) return;
+        const rowData = variant_table.row(rowIndex).data();
         if (!rowData || !rowData.Chrom || !rowData.Start || !rowData.End || !rowData.Sample) return;
 
         const hash = `#${rowData.Chrom}:${rowData.Start}-${rowData.End}:${rowData.Sample}`;
@@ -1079,9 +1095,9 @@ function setupContextMenu() {
     // View image menu item
     viewImageItem.addEventListener('click', () => {
         try {
-            const tr = document.getElementById(menu.dataset.rowId);
-            if (!tr) return;
-            table_click(tr, variant_table);
+            const rowIndex = parseInt(menu.dataset.rowIndex, 10);
+            if (Number.isNaN(rowIndex)) return;
+            table_click(rowIndex, variant_table);
         } catch (error) {
             console.error("Error handling view image action:", error);
         }
@@ -1151,7 +1167,7 @@ function resetFilter() {
 }
 
 /**
- * Download a file (IGV session, BAM, or BAI)
+ * Download a file (e.g. BAM or BAI) via a temporary anchor click.
  * @param {string} filePath - Path to the file
  * @param {Event} event - The click event
  */
@@ -1232,147 +1248,6 @@ function copyToClipboard(text) {
     document.body.removeChild(textarea);
 }
 
-// Add new function to handle IGV opening
-function openIGV(chrom, start, end, bamPath, event) {
-    event.stopPropagation();
-    const isLocalFile = window.location.protocol === 'file:';
-
-    // Get the current row data to access BAM and BAI paths
-    const currentRow = variant_table.row($(event.target).closest('tr')).data();
-    if (!currentRow) {
-        alert('Could not find row data');
-        return;
-    }
-
-    // Check if this is a trio row
-    const isTrio = currentRow.Sample.endsWith('-trio');
-    const bamPaths = isTrio ?
-        (Array.isArray(currentRow.BAM) ? currentRow.BAM : currentRow.BAM.split(',')) :
-        [currentRow.BAM];
-    const baiPaths = isTrio ?
-        (Array.isArray(currentRow.BAI) ? currentRow.BAI : currentRow.BAI.split(',')) :
-        [currentRow.BAI];
-
-    if (isLocalFile) {
-        // For local files, prompt user to select project directory
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.webkitdirectory = true;
-        input.directory = true;
-        input.onchange = (e) => {
-            const files = Array.from(e.target.files);
-            const projectDirectory = files[0].webkitRelativePath.split('/')[0];
-
-            // Find all the files by matching their relative paths
-            const bamFiles = bamPaths.map(bamPath =>
-                files.find(f => f.webkitRelativePath.replace(`${projectDirectory}/`, '') === bamPath)
-            );
-            const baiFiles = baiPaths.map(baiPath =>
-                files.find(f => f.webkitRelativePath.replace(`${projectDirectory}/`, '') === baiPath)
-            );
-
-            if (bamFiles.every(f => f) && baiFiles.every(f => f)) {
-                // Read all files using FileReader
-                const readers = [...bamFiles, ...baiFiles].map(file => {
-                    const reader = new FileReader();
-                    return new Promise((resolve) => {
-                        reader.onload = () => resolve(reader.result);
-                        reader.readAsDataURL(file);
-                    });
-                });
-
-                Promise.all(readers).then(results => {
-                    const bamDataUrls = results.slice(0, bamFiles.length);
-                    const baiDataUrls = results.slice(bamFiles.length);
-                    initializeIGVViewer(chrom, start, end, bamDataUrls, baiDataUrls, isTrio);
-                });
-            } else {
-                alert(`Could not find the correct BAM/BAI files in the selected directory.\nExpected paths:\n${bamPaths.join('\n')}\n${baiPaths.join('\n')}`);
-            }
-        };
-        input.click();
-    } else {
-        // For server files, create URLs with the BAM paths
-        const baseUrl = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '');
-        const bamUrls = bamPaths.map(path => baseUrl + '/' + path.replace(/^\//, ''));
-        const baiUrls = baiPaths.map(path => baseUrl + '/' + path.replace(/^\//, ''));
-        initializeIGVViewer(chrom, start, end, bamUrls, baiUrls, isTrio);
-    }
-}
-
-// Function to initialize IGV viewer
-async function initializeIGVViewer(chrom, start, end, bamUrls, baiUrls, isTrio) {
-    // Remove any existing event listeners
-    $('#igv-modal').off('shown.bs.modal hidden.bs.modal');
-    const container = document.getElementById('igv-viewer');
-
-    // Show the modal
-    $('#igv-modal').modal('show');
-
-    // Wait for modal to be fully shown
-    $('#igv-modal').on('shown.bs.modal', async function () {
-        try {
-            // If we don't have a browser instance yet, create one
-            if (!window.igvBrowser) {
-                const options = {
-                    genome: "hg38",
-                    locus: `${chrom}:${start}-${end}`,
-                    tracks: []
-                };
-                console.log("Creating IGV browser");
-                window.igvBrowser = await igv.createBrowser(container, options);
-            } else {
-                // If we have an existing browser, just update the locus
-                window.igvBrowser.search(`${chrom}:${start}-${end}`);
-            }
-
-            // Configure the BAM tracks
-            const trackConfigs = bamUrls.map((bamUrl, index) => ({
-                name: isTrio ? ["Paternal", "Maternal", "Sample"][index] : "BAM",
-                url: bamUrl,
-                type: "alignment",
-                format: "bam",
-                visibilityWindow: 300000000,
-                autoHeight: true,
-                indexURL: baiUrls[index],
-                indexed: true,
-                supportsWholeGenome: false,
-                groupBy: "tag:HP",
-                colorBy: "tag:YC",
-                displayMode: "SQUISHED",
-                showSoftClips: true,
-            }));
-
-            // Load all tracks
-            for (const config of trackConfigs) {
-                await window.igvBrowser.loadTrack(config);
-            }
-        } catch (error) {
-            console.error("Error with IGV browser:", error);
-            alert("Error loading IGV viewer. Please try again.");
-        }
-    });
-
-    // Clean up when modal is hidden
-    $('#igv-modal').on('hidden.bs.modal', function () {
-        if (window.igvBrowser) {
-            try {
-                // Remove all tracks but keep the browser instance
-                window.igvBrowser.removeAllTracks();
-
-                // Clean up data URLs if they exist
-                if (window.igvDataUrls) {
-                    [...window.igvDataUrls.bams, ...window.igvDataUrls.bais].forEach(url => {
-                        if (url) URL.revokeObjectURL(url);
-                    });
-                    window.igvDataUrls = null;
-                }
-            } catch (error) {
-                console.error("Error cleaning up IGV tracks:", error);
-            }
-        }
-    });
-}
 
 // Add the viewTrio function
 function viewTrio(sample, paternalId, maternalId, event) {
@@ -1428,4 +1303,5 @@ function toggleShowHelp(checkbox) {
     if (helpDiv) {
         helpDiv.style.display = showHelpActive ? 'block' : 'none';
     }
+    document.body.classList.toggle('help-panel-visible', showHelpActive);
 }

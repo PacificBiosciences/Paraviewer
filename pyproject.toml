@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "paraviewer"
-version = "0.1.0"
+version = "1.0.0"
 description = "command line tool for generating visualizations of outputs from the Paraphase variant caller"
 readme = "readme.md"
 requires-python = ">=3.10"
@@ -23,10 +23,8 @@ dependencies = [
     "numpy>=2.2.5",
     "scikit-image>=0.24.0",
     "cython>=3.0.10",
-    "Jinja2==3.1.5",
-    "tqdm==4.67.1",
+    "Jinja2==3.1.6",
     "requests==2.32.3",
-    "pyyaml==6.0.2",
     "cachetools==5.5.2",
     "pysam==0.23.0"
 ]
@@ -55,6 +53,23 @@ include = [
     "readme.md",
 ]
 
+# Pixi: conda (orographer) + PyPI (paraviewer and deps). E2E: pixi run e2e
+[tool.pixi.workspace]
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64", "osx-arm64", "osx-64"]
+
+[tool.pixi.dependencies]
+orographer = "==0.1.0"
+
+[tool.pixi.pypi-dependencies]
+paraviewer = { path = ".", editable = true }
+
+[tool.pixi.environments]
+default = { features = ["dev"], solve-group = "default" }
+
+[tool.pixi.tasks]
+e2e = "bash tests/scripts/run_end_to_end_tests.sh"
+
 [tool.hatch.envs.default]
 dependencies = [
     "pytest",
@@ -63,7 +78,8 @@ dependencies = [
 
 [tool.hatch.envs.default.scripts]
 test = "pytest {args:tests}"
-test-cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=paraviewer {args:tests}"
+test-cov = "pytest --cov=paraviewer --cov-config=pyproject.toml --cov-report=term-missing:skip-covered --cov-report=xml:coverage.xml {args:tests}"
+cov-html = "pytest --cov=paraviewer --cov-config=pyproject.toml --cov-report=html {args:tests}"
 lint = [
     "black --check .",
     "isort --check-only .",
@@ -92,10 +108,43 @@ ignore_missing_imports = true
 [tool.ruff]
 line-length = 88
 target-version = "py310"
+
+[tool.ruff.lint]
 select = ["E", "F", "B", "I"]
 ignore = []
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-ra -q" 
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-ra --tb=short --strict-markers"
+markers = [
+    "unit: fast unit tests under tests/unit/",
+    "integration: integration tests",
+    "slow: slow-running tests",
+    "layer_pure: deterministic, no FS/subprocess (plan §4)",
+    "layer_io: fixture / tmp_path I/O (plan §4)",
+    "layer_orchestration: paraviewer() pipeline (plan §4)",
+]
+
+# Coverage gate (§2 unit_test_plan.md): raise fail_under as the suite grows.
+[tool.coverage.run]
+source = ["paraviewer"]
+relative_files = true
+
+[tool.coverage.report]
+fail_under = 60
+precision = 1
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == \"__main__\":",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"

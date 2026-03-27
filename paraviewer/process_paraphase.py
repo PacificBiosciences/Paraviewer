@@ -1,17 +1,18 @@
-from glob import glob
 import logging
+import sys
+from glob import glob
 from os import path
 from typing import Dict, Optional
+
 from paraviewer.special_info import get_special_info
 from paraviewer.utils import (
-    IGV_SESSIONS_PATH,
-    IMAGES_PATH,
+    OLD_PARAPHASE_NO_PHASE_REGION,
+    OROGRAPHER_OUTPUT_PATH,
     REGION_PADDING,
     ParaphaseResults,
     PedigreeEntry,
     RegionEntry,
-    copy_trio_bams,
-    genomic_interval_from_str,
+    parse_phase_region,
     parse_sample_name_from_paraphase_output,
     unpack_json,
 )
@@ -72,7 +73,7 @@ def get_paraphase_results(
             HAVANNO="",
         )
     if len(all_results) == 0:
-        logger.warning(f"No samples found for {paraphase_dir}.")
+        logger.debug(f"No samples found for {paraphase_dir}.")
 
     return all_results
 
@@ -83,7 +84,6 @@ def make_trio_table_entries(
     paternal_paraphase_results: ParaphaseResults,
     maternal_paraphase_results: ParaphaseResults,
     all_split_bams: Dict[str, str],
-    paraphase_config: Dict[str, Dict],
     outdir: str,
 ):
     """
@@ -100,14 +100,10 @@ def make_trio_table_entries(
     ):
         return []
     proband_paraphase_json_calls = unpack_json(proband_paraphase_results.JSON)
-    paternal_paraphase_json_calls = unpack_json(paternal_paraphase_results.JSON)
-    maternal_paraphase_json_calls = unpack_json(maternal_paraphase_results.JSON)
 
     trio_entries = []
     for region in proband_paraphase_json_calls:
         proband_region_data = proband_paraphase_json_calls[region]
-        paternal_region_data = paternal_paraphase_json_calls[region]
-        maternal_region_data = maternal_paraphase_json_calls[region]
 
         if (
             region not in all_split_bams[trio.IndividualID]
@@ -116,56 +112,61 @@ def make_trio_table_entries(
         ):
             continue
 
-        bam_paths = copy_trio_bams(
-            trio,
-            region,
-            outdir,
-            all_split_bams[trio.IndividualID][region].BAM,
-            all_split_bams[trio.PaternalID][region].BAM,
-            all_split_bams[trio.MaternalID][region].BAM,
-        )
+        # Use split BAM paths (paternal, maternal, proband) for trio plot
+        paternal_paths = all_split_bams[trio.PaternalID][region]
+        maternal_paths = all_split_bams[trio.MaternalID][region]
+        proband_paths = all_split_bams[trio.IndividualID][region]
+        bam_paths = [paternal_paths.BAM, maternal_paths.BAM, proband_paths.BAM]
+        bai_paths = [paternal_paths.BAI, maternal_paths.BAI, proband_paths.BAI]
 
+        phase_region = proband_region_data.get("phase_region") if isinstance(
+            proband_region_data, dict
+        ) else None
+        if not phase_region:
+            logger.error(OLD_PARAPHASE_NO_PHASE_REGION, region)
+            sys.exit(1)
         try:
-            realign_region = genomic_interval_from_str(
-                paraphase_config[region]["realign_region"]
-            )
-        except Exception as e:
-            logger.info(
-                f"Failed to find config info for region f{region}, skipping. \n{e}"
-            )
-            continue
+            realign_region = parse_phase_region(str(phase_region))
+        except ValueError as e:
+            logger.error("Invalid phase_region for %r: %s", region, e)
+            sys.exit(1)
 
         total_cn, special_info = get_special_info(
             region, proband_region_data, proband_paraphase_results
         )
 
-        igv_session_path = path.join(
-            IGV_SESSIONS_PATH.format(sample=trio.IndividualID + "-trio"),
-            f"{region}_igv.xml",
-        )
-        image_path = path.join(
-            IMAGES_PATH.format(sample=trio.IndividualID + "-trio"),
-            f"{trio.IndividualID + "-trio"}_{region}.png",
+        # Compute dynamic padding as 5% of region length
+        region_len = max(0, realign_region.End - realign_region.Start)
+        pad = max(0, int(region_len * REGION_PADDING))
+        padded_start = max(0, realign_region.Start - pad)
+        padded_end = max(0, realign_region.End + pad)
+
+        # Single HTML path for native trio plot (populated after plot generation)
+        sample_name = trio.IndividualID + "-trio"
+        prefix = f"{sample_name}_{region}"
+        orographer_html_path = path.join(
+            OROGRAPHER_OUTPUT_PATH,
+            f"{prefix}_{realign_region.Chrom}_{padded_start}_{padded_end}_bokeh.html",
         )
 
         trio_entries.append(
             RegionEntry(
                 realign_region.Chrom,
-                max(0, realign_region.Start - REGION_PADDING),
-                max(0, realign_region.End + REGION_PADDING),
+                padded_start,
+                padded_end,
                 region,
                 trio.IndividualID + "-trio",
                 bam_paths,
-                [x + ".bai" for x in bam_paths],
+                bai_paths,
                 total_cn,
                 special_info,
-                image_path,
-                igv_session_path,
+                orographer_html_path,
                 trio.FamilyID,
                 trio.PaternalID,
                 trio.MaternalID,
                 trio.Sex,
                 trio.Phenotype,
+                True,
             )
         )
     return trio_entries
@@ -175,7 +176,7 @@ def make_table_entries(
     paraphase_results: ParaphaseResults,
     pedigree_entry: Optional[PedigreeEntry],
     split_bams: Dict[str, str],
-    paraphase_config: Dict[str, Dict],
+    is_trio_sample: bool,
 ):
     """
     Reads the info that will be used for page building from a json file
@@ -183,7 +184,6 @@ def make_table_entries(
 
     Args:
         ParaphaseResults namedtuple
-        genome_build: Genome build to use
         pedigree_entry: Optional PedigreeEntry for this sample
 
     Returns:
@@ -199,47 +199,51 @@ def make_table_entries(
         bam_path = split_bams[region].BAM
         bai_path = split_bams[region].BAI
 
+        pr = region_data.get("phase_region") if isinstance(region_data, dict) else None
+        if not pr:
+            logger.error(OLD_PARAPHASE_NO_PHASE_REGION, region)
+            sys.exit(1)
         try:
-            realign_region = genomic_interval_from_str(
-                paraphase_config[region]["realign_region"]
-            )
-        except Exception as e:
-            logger.info(
-                f"Failed to find config info for region f{region}, skipping. \n{e}"
-            )
-            continue
+            realign_region = parse_phase_region(str(pr))
+        except ValueError as e:
+            logger.error("Invalid phase_region for %r: %s", region, e)
+            sys.exit(1)
 
         total_cn, special_info = get_special_info(
             region, region_data, paraphase_results
         )
 
-        igv_session_path = path.join(
-            IGV_SESSIONS_PATH.format(sample=paraphase_results.Sample),
-            f"{region}_igv.xml",
-        )
-        image_path = path.join(
-            IMAGES_PATH.format(sample=paraphase_results.Sample),
-            f"{paraphase_results.Sample}_{region}.png",
+        # Compute dynamic padding as 5% of region length
+        region_len = max(0, realign_region.End - realign_region.Start)
+        pad = max(0, int(region_len * REGION_PADDING))
+        padded_start = max(0, realign_region.Start - pad)
+        padded_end = max(0, realign_region.End + pad)
+
+        # Generate orographer HTML path (will be populated after plot generation)
+        prefix = f"{paraphase_results.Sample}_{region}"
+        orographer_html_path = path.join(
+            OROGRAPHER_OUTPUT_PATH,
+            f"{prefix}_{realign_region.Chrom}_{padded_start}_{padded_end}_bokeh.html",
         )
 
         sample_entries.append(
             RegionEntry(
                 realign_region.Chrom,
-                max(0, realign_region.Start - REGION_PADDING),
-                max(0, realign_region.End + REGION_PADDING),
+                padded_start,
+                padded_end,
                 region,
                 paraphase_results.Sample,
                 bam_path,
                 bai_path,
                 total_cn,
                 special_info,
-                image_path,
-                igv_session_path,
+                orographer_html_path,
                 pedigree_entry.FamilyID if pedigree_entry else "",
                 pedigree_entry.PaternalID if pedigree_entry else "",
                 pedigree_entry.MaternalID if pedigree_entry else "",
                 pedigree_entry.Sex if pedigree_entry else "",
                 pedigree_entry.Phenotype if pedigree_entry else "",
+                is_trio_sample,
             )
         )
     return sample_entries

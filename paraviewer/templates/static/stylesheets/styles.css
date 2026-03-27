@@ -19,19 +19,23 @@ span.show-ellipsis:after {
 }
 
 #variant-table_info {
+    padding: 10px;
+    border-top: 1px solid #dee2e6;
+    background-color: white;
+}
+
+/* When help is visible, fix the bottom bar to the viewport so it stays in view */
+body.help-panel-visible #variant-table_info {
     position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
-    background-color: white;
-    padding: 10px;
-    border-top: 1px solid #dee2e6;
     z-index: 1000;
+    background-color: white;
 }
 
-/* Add padding to prevent table content from being hidden behind fixed info bar */
-#variant-table_wrapper {
-    padding-bottom: 50px;
+body.help-panel-visible #variant-table_wrapper .dataTables_scrollBody {
+    padding-bottom: 60px;
 }
 
 table.dataTable thead th.sorting:after,
@@ -47,12 +51,18 @@ table.dataTable thead th.sorting_desc:before {
     width: 610px;
 }
 
+/* Override for orographer modal to fill space */
+#orographer-modal .modal-content {
+    width: 100%;
+}
+
 h7 {
     font-size: .95rem;
 }
 
 body {
-    height: 100vh
+    height: 100vh;
+    overflow-y: hidden;
 }
 
 div.dts div.dataTables_scrollBody {
@@ -233,13 +243,11 @@ body.viewer-open {
 }
 
 /* Download button styles */
-.igv-download-btn,
 .btn-group-sm>.btn {
     font-size: 0.8rem;
     padding: 0.25rem 0.5rem;
 }
 
-.igv-download-btn:hover,
 .btn-group-sm>.btn-outline-primary:hover {
     background-color: #007bff;
     color: white;
@@ -276,8 +284,8 @@ body.viewer-open {
     display: inline-block;
 }
 
-/* Quick view container styling */
-.quick-view-container {
+/* View it container styling */
+.view-it-container {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -293,6 +301,7 @@ body.viewer-open {
 }
 
 
+/* Help overlays content so the bottom control bar stays in view (no layout push) */
 .help-div {
     background-color: #009CA2;
     padding: 25px 40px;
@@ -354,23 +363,107 @@ body.viewer-open {
     margin-right: 8px;
 }
 
-/* IGV Modal Height Constraints */
-#igv-modal .modal-dialog {
-    max-height: 90vh;
-    /* 90% of viewport height */
-    margin: 5vh auto;
-    /* Center with 5% margin top/bottom */
+/* Orographer Modal Sizing */
+#orographer-modal .modal-dialog {
+    max-width: 95vw;
+    width: 95vw;
+    max-height: 95vh;
+    height: 95vh;
+    margin: 2.5vh auto;
 }
 
-#igv-modal .modal-content {
+#orographer-modal .modal-content {
+    width: 100%;
+    height: 100%;
     max-height: 100%;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
-#igv-viewer {
-    max-height: calc(90vh - 120px);
-    /* Subtract modal header/footer space */
-    overflow: auto;
+#orographer-modal .modal-header {
+    flex-shrink: 0;
+}
+
+#orographer-modal .modal-body {
+    flex: 1;
+    overflow: hidden;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Trio container - stacks plots vertically */
+.orographer-trio-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+}
+
+/* Individual plot wrapper - for trio mode */
+.orographer-plot-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-bottom: 1px solid #dee2e6;
+}
+
+/* Trio sizing only when NOT in single-plot mode */
+.orographer-trio-container:not(.single-plot) #orographer-plot-paternal,
+.orographer-trio-container:not(.single-plot) #orographer-plot-maternal {
+    flex: 0 0 30%; /* Parents 30% each */
+}
+.orographer-trio-container:not(.single-plot) #orographer-plot-proband {
+    flex: 0 0 40%; /* Proband 40% */
+}
+
+.orographer-plot-wrapper:last-child {
+    border-bottom: none;
+}
+
+/* Hide plot wrappers for single sample mode */
+.orographer-plot-wrapper.hidden {
+    display: none;
+}
+
+/* Single sample mode - when only proband is visible, it takes full height */
+.orographer-trio-container.single-plot .orographer-plot-wrapper:not(.hidden) {
+    flex: 1;
+    height: 100%;
+}
+
+/* Plot label above each iframe */
+.orographer-plot-label {
+    flex-shrink: 0;
+    margin-top: 1px;
+    padding: 2px 10px;
+    line-height: 1.0;
+    background-color: #f8f9fa;
+    border-top: 1px solid #adb5bd;
+    border-width: 2px;
+    font-weight: 600;
+    font-size: 0.9em;
+    color: #495057;
+    text-align: center;
+}
+
+/* Iframe styling */
+.orographer-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Legacy single iframe support (for backward compatibility) */
+#orographer-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    flex: 1;
 }
 
 /* Horizontal scrolling for table */

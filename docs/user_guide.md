@@ -1,116 +1,146 @@
 # User Guide
 
 ## Installation
-### Install with Conda/Mamba
-Paraviewer depends on Conda packages, so we recommend installing Paraviewer via mamba as well. 
-We recommend creating a dedicated mamba environment for Paraviewer:
+Paraviewer requires **Python 3.10+**. The generated site uses in-browser visualization via [orographer](https://github.com/PacificBiosciences/Orographer).
+
+We recommend installing from conda, for example via mamba:
 ```bash
-mamba create -n paraviewer_env igv pip "python>=3.10"
+mamba create -n paraviewer_env pip "python>=3.10" paraviewer
 mamba activate paraviewer_env
-mamba install -y paraviewer -c bioconda
 ```
 
-### Installation from source
-
-Paraviewer requires conda/mamba installations of pip and IGV even when installing from source.
-We recommend creating a dedicated mamba environment for Paraviewer.
-
-Paraviewer can then be cloned and installed from source:
+You may also install from source:
 ```bash
-mamba create -n paraviewer_env igv pip "python>=3.10"
+mamba create -n paraviewer_env pip "python>=3.10" "orographer>=0.1.0"
 mamba activate paraviewer_env
 git clone https://github.com/PacificBiosciences/Paraviewer.git
 cd Paraviewer
 pip install .
 ```
 
-Or downloaded from the [GitHub Releases](https://github.com/PacificBiosciences/Paraviewer/releases) page, unzipped, and installed:
-```bash
-wget https://github.com/PacificBiosciences/Paraviewer/archive/refs/tags/v0.1.0.tar.gz
-tar -xzvf v0.1.0.tar.gz
-cd Paraviewer-0.1.0/
-pip install .
-```
-
-To support headless HPC environments, Paraviewer on Linux also requires [Xvfb](https://www.x.org/archive/X11R7.7/doc/man/man1/Xvfb.1.xhtml).
-
 ## How to run
 ### Paraviewer command-line arguments
-These can be viewed after installation by running `paraviewer -h` in the terminal.
+These can be viewed after installation by running `paraviewer create -h` in the terminal.
+
+You must pass **exactly one** of `--paraphase-dir` or `--ptcp-dir`, plus `--outdir` and `--ref`.
+
 ```text
-ParaViewer v0.1.0
-usage: paraviewer [-h] [-v] --outdir OUTDIR [--paraphase-dir PARAPHASE_DIR] [--ptcp-dir PTCP_DIR] [--clobber] --genome {hg19,hg38} [--pedigree PEDIGREE]
-                  [--include-only-regions INCLUDE_ONLY_REGIONS [INCLUDE_ONLY_REGIONS ...]] [--exclude-regions EXCLUDE_REGIONS [EXCLUDE_REGIONS ...]]
-                  [--include-only-samples INCLUDE_ONLY_SAMPLES [INCLUDE_ONLY_SAMPLES ...]] [--exclude-samples EXCLUDE_SAMPLES [EXCLUDE_SAMPLES ...]] [--max-reads-per-haplotype MAX_READS_PER_HAPLOTYPE] [--verbose]
+$ paraviewer create --help
+
+ParaViewer v1.0.0
+usage: paraviewer create [-h] --outdir OUTDIR [--paraphase-dir PARAPHASE_DIR] [--ptcp-dir PTCP_DIR] --ref REF [--gtf GTF] [--include-only-regions INCLUDE_ONLY_REGIONS [INCLUDE_ONLY_REGIONS ...]]
+                         [--exclude-regions EXCLUDE_REGIONS [EXCLUDE_REGIONS ...]] [--pedigree PEDIGREE] [--include-only-samples INCLUDE_ONLY_SAMPLES [INCLUDE_ONLY_SAMPLES ...]]
+                         [--exclude-samples EXCLUDE_SAMPLES [EXCLUDE_SAMPLES ...]] [--max-reads-per-haplotype MAX_READS_PER_HAPLOTYPE] [--threads THREADS] [--clobber] [--verbose]
+
+Process paraphase or puretarget results and generate interactive HTML viewer with orographer plots.
 
 options:
   -h, --help            show this help message and exit
-  -v, --version         Installed version (0.1.0)
-  --outdir OUTDIR       Path to output directory - should not already exist (default: None)
+
+Required:
+  --outdir OUTDIR       Path to output directory - should not already exist
   --paraphase-dir PARAPHASE_DIR
-                        Path to paraphase result directory. (default: None)
-  --ptcp-dir PTCP_DIR   Path to PureTarget Carrier Panel result directory. (default: None)
-  --clobber             Overwrite output directory if it already exists (default: False)
-  --genome {hg19,hg38}  Desired genome build. Choose between GRCh37/HG19 (hg19) and GRCh38/HG38 (hg38) (default: None)
-  --pedigree PEDIGREE   Path to GATK-format PED file containing pedigree information - unrepresented samples will be excluded. (default: None)
+                        EITHER path to paraphase result directory.
+  --ptcp-dir PTCP_DIR   OR path to PureTarget Carrier Panel result directory.
+  --ref REF             Path to reference FASTA file
+
+Filtering:
   --include-only-regions INCLUDE_ONLY_REGIONS [INCLUDE_ONLY_REGIONS ...]
-                        Space-delimited list of region names to include. Regions not specified will be excluded. (default: None)
+                        Region names to include; others excluded.
   --exclude-regions EXCLUDE_REGIONS [EXCLUDE_REGIONS ...]
-                        Space-delimited list of region names to exclude. (default: None)
+                        Space-delimited list of region names to exclude.
   --include-only-samples INCLUDE_ONLY_SAMPLES [INCLUDE_ONLY_SAMPLES ...]
-                        Space-delimited list of sample IDs to include. Samples not specified will be excluded. (default: None)
+                        Sample IDs to include; others excluded.
   --exclude-samples EXCLUDE_SAMPLES [EXCLUDE_SAMPLES ...]
-                        Space-delimited list of sample IDs to exclude. (default: None)
+                        Space-delimited list of sample IDs to exclude.
+
+Annotation:
+  --gtf GTF             Optional path to bgzip+tabix GTF/GFF3 for gene track.
+  --pedigree PEDIGREE   Optional GATK-format PED; unrepresented samples excluded.
+
+Other:
   --max-reads-per-haplotype MAX_READS_PER_HAPLOTYPE
-                        Maximum number of reads to show per haplotype. (default: 500)
-  --verbose             Print verbose output for debugging purposes (default: False)
+                        Maximum number of reads to show per haplotype.
+  --threads THREADS     Number of worker processes, up to CPU count (default 1)
+  --clobber             Overwrite output directory if it already exists
+  --verbose             Print verbose output for debugging purposes
 ```
+
+The **parent directory** of `--outdir` must exist. The output directory itself must not exist unless you pass **`--clobber`**.
+
+Plot intervals come from each region's `phase_region` field in the Paraphase JSON (e.g. `38:chr6:32013300-32046200`). Older Paraphase outputs without `phase_region` are not supported.
 
 ### Basic WGS usage
 To run Paraviewer on WGS [Paraphase](https://github.com/PacificBiosciences/paraphase) output directory, use the following command:
 ```bash
-paraviewer \
+paraviewer create \
     --outdir {output directory path} \
     --paraphase-dir {paraphase output directory path} \
-    --genome hg38
+    --ref {reference fasta}
 ```
 
 ### Basic PTCP usage
 To run Paraviewer on PureTarget Carrier Panel data from [PTCP](https://github.com/PacificBiosciences/ptcp) output directory, the command is the same except the PTCP directory argument is named `--ptcp-dir`:
 ```bash
-paraviewer \
+paraviewer create \
     --outdir {output directory path} \
     --ptcp-dir {PTCP output directory path} \
-    --genome hg38
+    --ref {reference fasta}
 ```
 
 ### Results
-Either of these workflows will generate a new website directory at `{output directory path}`. The site will contain an index.html page which can be opened in browser by:
-* Pasting the index.html absolute path into a browser window
-* Using the command-line tool open: `open {paraphase_directory_path}/index.html`
-* Double-clicking on the index.html icon in the file explorer
+Either of these workflows will generate a new website directory at `{output directory path}`. To browse it, you can run the paraviewer deploy command to generate a local server:
+```bash
+$ paraviewer deploy -h
+
+ParaViewer v1.0.0
+usage: paraviewer deploy [-h] --outdir OUTDIR [--port PORT]
+
+Start a simple HTTP server to serve generated paraviewer HTML and orographer plots.
+
+options:
+  -h, --help       show this help message and exit
+  --outdir OUTDIR  Directory path containing HTML and JSON files to serve
+  --port PORT      Port number to serve on (default: 8000)
+```
+
+For the above PTCP usage, this would be:
+```bash
+$ paraviewer deploy --outdir {same output directory path as used for the 'create' command}
+
+ParaViewer v1.0.0
+Serving plots from: my_dir
+Server running at http://localhost:8000/
+
+Press Ctrl+C to stop the server
+```
+
+You may then load the `http://localhost:8000/` url in your browser to view.
+
+**Note**: Paraviewer sites also support loading on an external server (such as GitHub Pages) for remote access.
 
 For help in navigating the site's table view, click the `Show Help` button at the bottom of the in-browser page.
 
-The site can also be deployed to a server for online access. Note that the site behavior may be slightly different for local-only vs hosted sites, due to differences in security features for those environments.
-
 ### Advanced usage
-Paraviewer supports several advanced arguments for experiment customization. These apply equally to WGS or PureTarget Paraviewer invocations.
+Paraviewer supports several advanced arguments for experiment customization. These apply equally to WGS or PureTarget Paraviewer usage.
 
-```bash
-paraviewer \
-    --outdir {output directory path} \
-    --paraviewer-dir OR --ptcp-dir {PTCP output directory path} \
-    --genome hg38 \
-    --pedigree {pedigree file} \ # Used to identify trios. Refer to https://gatk.broadinstitute.org/hc/en-us/articles/360035531972-PED-Pedigree-format
-    --exclude-samples {my_boring_sample1 my_boring_sample2} \ # Input sample IDs that you want to exclude. Space-delimited list.
-    --include_only_regions {smn rccx} \ # Cap-agnostic space delimited list of regions to include in output. The actual region names that can be included here will depend on which regions are supported in the pipeline (WGS or PTCP)
-    --include_only_samples {my_fun_sample1 my_fun_sample2} \ # Sample IDs to include. Not compatible with `--exclude-samples`
-    --exclude_regions {smn} \ # Cap-agnostic space delimited list of regions to exclude in output. Not compatible with `--include-only-samples`
-```
+* **Pedigree** — Used to identify trios. See [PED format](https://gatk.broadinstitute.org/hc/en-us/articles/360035531972-PED-Pedigree-format).
+  * `--pedigree my_cohort.ped`
+
+**Regions**
+
+* **Include only regions** — Space-delimited region keys to keep in the output. Names are case-insensitive; **each name must appear** in at least one input Paraphase JSON (unknown names are an error). The exact set of included regions will depend on your Paraphase/PTCP run. Example:
+  * `--include-only-regions smn1 rccx`
+* **Exclude regions** — Space-delimited region keys to drop. Each name must exist in the input JSON. The `--include-only-regions` and `--exclude-regions` arguments are mutually exclusive; use only one or the other. Example:
+  * `--exclude-regions smn1`
+
+**Samples**
+
+* **Include only samples** — Space-delimited sample IDs to keep; others are excluded. If none of the given names match discovered samples, Paraviewer exits with an error. Names that do not match any sample are skipped with a warning. Example:
+  * `--include-only-samples my_fun_sample1 my_fun_sample2`
+* **Exclude samples** — Space-delimited sample IDs to drop. The `--include-only-samples` and `--exclude-samples` arguments are mutually exclusive; use only one or the other. Example:
+  * `--exclude-samples my_boring_sample1 my_boring_sample2`
 
 ## Algorithm notes
 Paraviewer follows this graphically described path to generate review sites:
 <h1 align="center"><img width="100%" style="background-color:white;" src="imgs/paraviewer-graphical.svg"/></h1>
-
-Running IGV in headless batch mode on Linux (necessary to support Linux HPC environments) creates small differences in how images are rendered. This is expected behavior and primarily results in differences in image dimensions vs running on MacOs.

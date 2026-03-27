@@ -1,10 +1,10 @@
-from glob import glob
 import logging
+from glob import glob
 from os import path
 from typing import Dict
+
 from paraviewer.process_paraphase import get_paraphase_results
 from paraviewer.utils import (
-    ParaphaseResults,
     PedigreeEntry,
     parse_sample_name_from_paraphase_output,
     strip_suffix_from_path,

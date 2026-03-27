@@ -4,24 +4,23 @@
 
 ## A viewer for [Paraphase](https://github.com/PacificBiosciences/paraphase)
 
-Paraviewer reads the result directory from Paraphase and uses the files within (per-sample BAM, JSON, and VCF files) to generate a serverless website with a powerful table viewer and various visulization aids. Paraviewer assists in variant prioritization and haplotype review for the complex genomic regions called by Paraphase.
+> [!WARNING]
+> **Please note:** Paraviewer is currently in active development and should be used for experimentation and feedback.
 
-### Note: Paraviewer is new software!
-Paraviewer is in early-release status. We welcome users to try it out and report issues that arise. New features and improvements will be coming soon.
-
+Paraviewer reads the result directory from Paraphase and uses the files within (per-sample BAM, JSON, and VCF files) to generate a table-based web browser specific to the input data. Paraviewer assists in variant prioritization and haplotype review for the complex genomic regions called by Paraphase.
 
 ### Overview
 Paraviewer can be installed from source and run on Mac or Linux systems. It requires an output directory from Paraphase or PTCP as input and generates a self-contained website for easy result review.
 
 For details, see [User Guide](docs/user_guide.md)
 
-The resulting website includes a variant table with entries for each sample/region included in analysis. The table supports several filtering features via clicking fields in the table or via a fitlering window from the bottom control bar.
+The resulting website includes a variant table with entries for each sample/region included in analysis. The table supports several filtering features via clicking fields in the table or via a filtering window from the bottom control bar.
 
-Each row also features a static IGV screenshot image for a quick look, an option to open a dynamic IGV.js window in browser, or options to download regional BAM files with accompanying IGV viewer sessions.
+Each row also features a dynamic image for in-depth review of alignments, similar to IGV.
 
-If an experiment is run with trios present and annotated via a pedigree file, the table will also include rows for each trio present. These rows have the same viewing options as individual samples, although no specific BAM download buttons (the BAMs for each sample can still be individually downloaded).
+If an experiment is run with trios present and annotated via a pedigree file, the table will also include rows for each trio present. These rows have the same viewing options as individual samples.
 
-#### Screenshot of Paraviewer trio visualization (IGV.js):
+#### Screenshot of Paraviewer trio visualization:
 
 <h1 align="center"><img width="100%" src="docs/imgs/paraviewer_screenshot.png"/></h1>
 
@@ -30,15 +29,11 @@ Want to try out the websites from Paraviewer? We've prepared two demo sites:
 * [WGS Demo](https://pacificbiosciences.github.io/ParaviewerWGSDemo): 22 samples from the Platinum Pedigree cohort. 5 regions are included ([GBA](https://github.com/PacificBiosciences/paraphase/blob/main/docs/GBA.md), [NEB](https://github.com/PacificBiosciences/paraphase/blob/main/docs/NEB.md), [PMS2](https://github.com/PacificBiosciences/paraphase/blob/main/docs/PMS2.md), [RCCX](https://github.com/PacificBiosciences/paraphase/blob/main/docs/RCCX.md), [SMN1](https://github.com/PacificBiosciences/paraphase/blob/main/docs/SMN1_SMN2.md))
 * [PureTarget Carrier Panel Demo](https://pacificbiosciences.github.io/ParaviewerPTCPDemo): 19 [PureTarget Carrier Panel](https://www.pacb.com/wp-content/uploads/Application-note-Consolidate-challenging-genes-with-PureTarget-carrier-screen-panel.pdf) samples from Coriell with variants in the CYP21 (part of RCCX) or SMN regions.
 
-#### Firefox note:
-Issues may be encountered in Firefox when loading these demo sites. We recommend the Chrome browser.
-
-
 ## Support information
 Paraviewer is a pre-release software intended for research use only and not for use in diagnostic procedures. 
-While efforts have been made to ensure that SVTopo lives up to the quality that PacBio strives for, we make no warranty regarding this software.
+While efforts have been made to ensure that Paraviewer lives up to the quality that PacBio strives for, we make no warranty regarding this software.
 
-As Paraviewer is not covered by any service level agreement or the like, please do not contact a PacBio Field Applications Scientists or PacBio Customer Service for assistance with any HiPhase release. 
+As Paraviewer is not covered by any service level agreement or the like, please do not contact a PacBio Field Applications Scientists or PacBio Customer Service for assistance with any Paraviewer release. 
 Please report all issues through GitHub instead. 
 We make no warranty that any such issue will be addressed, to any extent or within any time frame.
 

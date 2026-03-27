@@ -1,20 +1,67 @@
 #!/usr/bin/env python
 from __future__ import print_function
-import json
-from re import A
-import shutil
-import argparse
-import sys
-from os import path
-import logging
-import subprocess
-import pathlib
-from paraviewer.utils import is_linux, get_config
 
-logger = logging.getLogger(__name__)
+import argparse
+import difflib
+import json
+import logging
+import pathlib
+import shutil
+import subprocess
+import sys
+from glob import glob
+from os import path
+
+from orographer.deploy import run_deploy
+
+from paraviewer.utils import parse_sample_name_from_paraphase_output, unpack_json
 
 from .__init__ import __version__
 from .paraviewer import paraviewer
+
+
+def _closest_match(value, valid_set, cutoff=0.5):
+    """Return the single closest match for value in valid_set, or None."""
+    if not value or not valid_set:
+        return None
+    matches = difflib.get_close_matches(value, valid_set, n=1, cutoff=cutoff)
+    return matches[0] if matches else None
+
+
+def _get_valid_sample_names(input_dir, is_puretarget):
+    """
+    Discover sample names from paraphase or puretarget input directory.
+    Returns a list of lowercase sample names, or None if discovery fails.
+    """
+    if not input_dir or not path.isdir(input_dir):
+        return None
+    try:
+        if is_puretarget:
+            names = []
+            for subdir in glob(path.join(input_dir, "*_paraphase")):
+                files = glob(path.join(subdir, "*"))
+                if files:
+                    names.append(
+                        parse_sample_name_from_paraphase_output(files[0]).lower()
+                    )
+            return list(set(names)) if names else None
+        else:
+            json_matches = glob(path.join(input_dir, "*paraphase.json")) + glob(
+                path.join(input_dir, "*paraphase.json.gz")
+            )
+            if not json_matches:
+                return None
+            return list(
+                set(
+                    parse_sample_name_from_paraphase_output(json_path).lower()
+                    for json_path in json_matches
+                )
+            )
+    except OSError:
+        return None
+
+
+logger = logging.getLogger(__name__)
 
 
 def is_tool_installed(tool_name: str) -> bool:
@@ -77,80 +124,152 @@ def setup_args():
         action="version",
         version="%(prog)s " + str(__version__),
     )
-    parser.add_argument(
+
+    # Create subparsers for commands
+    subparsers = parser.add_subparsers(
+        dest="command", help="Command to run", metavar="COMMAND", required=True
+    )
+
+    # Create command
+    create_parser = subparsers.add_parser(
+        "create",
+        help="Generate paraviewer HTML page with orographer plots",
+        description=(
+            "Process paraphase or puretarget results and generate "
+            "interactive HTML viewer with orographer plots."
+        ),
+    )
+
+    # Argument groups for nicer --help organization
+    required_args_group = create_parser.add_argument_group("Required")
+    filtering_args_group = create_parser.add_argument_group("Filtering")
+    annotation_args_group = create_parser.add_argument_group("Annotation")
+    other_args_group = create_parser.add_argument_group("Other")
+
+    # Required (inputs/outputs and reference)
+    required_args_group.add_argument(
         "--outdir",
         help="Path to output directory - should not already exist",
         required=True,
         type=valid_parent_dir,
     )
-    parser.add_argument(
+    required_args_group.add_argument(
         "--paraphase-dir",
-        help="Path to paraphase result directory.",
+        help="EITHER path to paraphase result directory.",
         required=False,
         type=valid_dir,
     )
-    parser.add_argument(
+    required_args_group.add_argument(
         "--ptcp-dir",
-        help="Path to PureTarget Carrier Panel result directory.",
+        help="OR path to PureTarget Carrier Panel result directory.",
         required=False,
         type=valid_dir,
     )
-    parser.add_argument(
-        "--clobber",
-        help="Overwrite output directory if it already exists",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--genome",
-        help="Desired genome build. Choose between GRCh37/HG19 (hg19) and GRCh38/HG38 (hg38)",
-        type=str,
-        required=True,
-        choices=["hg19", "hg38"],
-    )
-    parser.add_argument(
-        "--pedigree",
-        help="Path to GATK-format PED file containing pedigree information - unrepresented samples will be excluded.",
+
+    required_args_group.add_argument(
+        "--ref",
+        help="Path to reference FASTA file",
         type=valid_file,
+        required=True,
     )
-    parser.add_argument(
+    # Annotation (pedigree and gene models)
+    annotation_args_group.add_argument(
+        "--gtf",
+        help="Optional path to bgzip+tabix GTF/GFF3 for gene track.",
+        type=valid_file,
+        required=False,
+    )
+
+    # Filtering (sample/region lists)
+    filtering_args_group.add_argument(
         "--include-only-regions",
-        help="Space-delimited list of region names to include. Regions not specified will be excluded.",
+        help="Region names to include; others excluded.",
         type=str,
         nargs="+",
+        required=False,
     )
-    parser.add_argument(
+    filtering_args_group.add_argument(
         "--exclude-regions",
         help="Space-delimited list of region names to exclude.",
         type=str,
         nargs="+",
+        required=False,
     )
-    parser.add_argument(
+    annotation_args_group.add_argument(
+        "--pedigree",
+        help="Optional GATK-format PED; unrepresented samples excluded.",
+        type=valid_file,
+        required=False,
+    )
+    filtering_args_group.add_argument(
         "--include-only-samples",
-        help="Space-delimited list of sample IDs to include. Samples not specified will be excluded.",
+        help="Sample IDs to include; others excluded.",
         type=str,
         nargs="+",
+        required=False,
     )
-    parser.add_argument(
+    filtering_args_group.add_argument(
         "--exclude-samples",
         help="Space-delimited list of sample IDs to exclude.",
         type=str,
         nargs="+",
+        required=False,
     )
-    parser.add_argument(
+
+    # Oother
+    other_args_group.add_argument(
         "--max-reads-per-haplotype",
         help="Maximum number of reads to show per haplotype.",
         default=500,
+        required=False,
     )
-    parser.add_argument(
+    other_args_group.add_argument(
+        "--threads",
+        help="Number of worker processes, up to CPU count (default 1)",
+        type=int,
+        default=1,
+        required=False,
+    )
+    other_args_group.add_argument(
+        "--clobber",
+        help="Overwrite output directory if it already exists",
+        action="store_true",
+        required=False,
+    )
+    other_args_group.add_argument(
         "--verbose",
         help="Print verbose output for debugging purposes",
         action="store_true",
     )
-    parser.add_argument(
-        "--no-igv-rerun",
+    other_args_group.add_argument(
+        "--task-timeout",
+        type=int,
+        default=600,
         help=argparse.SUPPRESS,
-        action="store_true",
+        metavar="SECONDS",
     )
+
+    # Deploy command
+    deploy_parser = subparsers.add_parser(
+        "deploy",
+        help="Start HTTP server to serve paraviewer output",
+        description="Start HTTP server to serve HTML.",
+    )
+
+    deploy_parser.add_argument(
+        "--outdir",
+        help="Directory path containing HTML and JSON files to serve",
+        required=True,
+        type=valid_dir,
+    )
+
+    deploy_parser.add_argument(
+        "--port",
+        help="Port number to serve on (default: 8000)",
+        type=int,
+        default=8000,
+    )
+
     return parser
 
 
@@ -171,23 +290,129 @@ def validate_include_exclude_lists(
     if valid_regions:
         filtered_include_list = []
         filtered_exclude_list = []
-        valid_regions = [x.lower() for x in valid_regions]
-        for i, include_item in enumerate(include_list):
-            if include_item in valid_regions:
+        valid_lower = [x.lower() for x in valid_regions]
+        for _i, include_item in enumerate(include_list):
+            if include_item in valid_lower:
                 filtered_include_list.append(include_item)
             else:
-                logger.warning(
-                    f"Include list `{list_name}` contains invalid entry {include_item}, which will be ignored"
-                )
+                suggestion = _closest_match(include_item, valid_lower)
+                if suggestion:
+                    logger.warning(
+                        "Include list `%s` contains invalid entry %s, ignored "
+                        "(did you mean: %s?)",
+                        list_name,
+                        include_item,
+                        suggestion,
+                    )
+                else:
+                    logger.warning(
+                        "Include list `%s` contains invalid entry %s, ignored",
+                        list_name,
+                        include_item,
+                    )
 
-        for i, exclude_item in enumerate(exclude_list):
-            if exclude_item in valid_regions:
+        for _i, exclude_item in enumerate(exclude_list):
+            if exclude_item in valid_lower:
                 filtered_exclude_list.append(exclude_item)
             else:
-                logger.warning(
-                    f"Exclude list `{list_name}` contains invalid entry {exclude_item}, which will be ignored"
-                )
+                suggestion = _closest_match(exclude_item, valid_lower)
+                if suggestion:
+                    logger.warning(
+                        "Exclude list `%s` contains invalid entry %s, ignored "
+                        "(did you mean: %s?)",
+                        list_name,
+                        exclude_item,
+                        suggestion,
+                    )
+                else:
+                    logger.warning(
+                        "Exclude list `%s` contains invalid entry %s, ignored",
+                        list_name,
+                        exclude_item,
+                    )
         return filtered_include_list, filtered_exclude_list
+    return include_list, exclude_list
+
+
+def _collect_union_region_keys(input_dir: str, is_puretarget: bool) -> set:
+    """Lowercase region names present in any *paraphase.json(.gz) under input_dir."""
+    keys: set = set()
+    if is_puretarget:
+        for paraphase_dir in glob(path.join(input_dir, "*_paraphase")):
+            jm = glob(path.join(paraphase_dir, "*paraphase.json")) + glob(
+                path.join(paraphase_dir, "*paraphase.json.gz")
+            )
+            for jp in jm:
+                data = unpack_json(jp)
+                if isinstance(data, dict):
+                    keys.update(
+                        str(k).lower() for k in data if isinstance(k, str)
+                    )
+    else:
+        jm = glob(path.join(input_dir, "*paraphase.json")) + glob(
+            path.join(input_dir, "*paraphase.json.gz")
+        )
+        for jp in jm:
+            data = unpack_json(jp)
+            if isinstance(data, dict):
+                keys.update(str(k).lower() for k in data if isinstance(k, str))
+    return keys
+
+
+def validate_region_filters_strict(
+    include_list, exclude_list, union_region_keys: set
+) -> tuple:
+    """
+    Require every include/exclude region name to appear in union_region_keys.
+    Exits on unknown name or overlap.
+    """
+    if include_list is None:
+        include_list = []
+    if exclude_list is None:
+        exclude_list = []
+    include_list = [str(x).lower() for x in include_list]
+    exclude_list = [str(x).lower() for x in exclude_list]
+    for item in include_list:
+        if item in exclude_list:
+            logger.error("%r is in both include and exclude region lists", item)
+            sys.exit(1)
+    if not union_region_keys and (include_list or exclude_list):
+        logger.error(
+            "No region keys found in input Paraphase JSON; cannot validate "
+            "--include-only-regions / --exclude-regions."
+        )
+        sys.exit(1)
+    for item in include_list:
+        if item not in union_region_keys:
+            sug = _closest_match(item, union_region_keys)
+            if sug:
+                logger.error(
+                    "Unknown region %r (not in input JSON). Did you mean %r?",
+                    item,
+                    sug,
+                )
+            else:
+                logger.error(
+                    "Unknown region %r: not present in any sample's Paraphase JSON.",
+                    item,
+                )
+            sys.exit(1)
+    for item in exclude_list:
+        if item not in union_region_keys:
+            sug = _closest_match(item, union_region_keys)
+            if sug:
+                logger.error(
+                    "Unknown region %r in --exclude-regions (not in input JSON). "
+                    "Did you mean %r?",
+                    item,
+                    sug,
+                )
+            else:
+                logger.error(
+                    "Unknown region %r in --exclude-regions: not in input JSON.",
+                    item,
+                )
+            sys.exit(1)
     return include_list, exclude_list
 
 
@@ -196,45 +421,72 @@ def main():
     parser = setup_args()
     args = parser.parse_args()
 
+    if args.command == "deploy":
+        run_deploy(args.outdir, args.port)
+        return
+
+    # Create command
     if args.verbose:
         logging.basicConfig(level=logging.DEBUG)
     else:
         logging.basicConfig(level=logging.INFO)
-
-    if not is_tool_installed_via_conda("igv"):
-        error_msg = "IGV not found. Paraviewer requires that you install IGV via conda/mamba, e.g."
-        error_msg += "\n`mamba install -c bioconda igv`"
-        logger.error(error_msg)
-        sys.exit(1)
-    if is_linux() and not is_tool_installed("Xvfb"):
-        error_msg = "Xvfb not found. Paraviewer on linux requires Xvfb."
-        logger.error(error_msg)
-        sys.exit(1)
 
     if not args.paraphase_dir and not args.ptcp_dir:
         logger.error("Either --paraphase-dir or --ptcp-dir must be specified")
         sys.exit(1)
     if args.paraphase_dir and args.ptcp_dir:
         logger.error(
-            "--paraphase-dir and --ptcp-dir are mutually exclusive: specify only one or the other"
+            "--paraphase-dir and --ptcp-dir are mutually exclusive; use one only."
         )
         sys.exit(1)
 
-    args.include_only_samples, args.exclude_samples = validate_include_exclude_lists(
-        args.include_only_samples, args.exclude_samples, "sample"
-    )
     source_pipeline = "paraphase"
+    input_dir = args.paraphase_dir
     if args.ptcp_dir:
         source_pipeline = "puretarget"
-    valid_regions = get_config(args.genome, source_pipeline).keys()
-    args.include_only_regions, args.exclude_regions = validate_include_exclude_lists(
+        input_dir = args.ptcp_dir
+    valid_samples = None
+    if args.include_only_samples or args.exclude_samples:
+        valid_samples = _get_valid_sample_names(
+            input_dir, source_pipeline == "puretarget"
+        )
+    had_include_only_samples = bool(args.include_only_samples)
+    args.include_only_samples, args.exclude_samples = validate_include_exclude_lists(
+        args.include_only_samples, args.exclude_samples, "sample", valid_samples
+    )
+    if had_include_only_samples and len(args.include_only_samples) == 0:
+        logger.error(
+            "--include-only-samples was set but none of the given sample names "
+            "are valid; exiting."
+        )
+        sys.exit(1)
+
+    union_keys = _collect_union_region_keys(
+        input_dir, source_pipeline == "puretarget"
+    )
+    args.include_only_regions, args.exclude_regions = validate_region_filters_strict(
         args.include_only_regions,
         args.exclude_regions,
-        "region",
-        valid_regions,
+        union_keys,
     )
 
-    paraviewer(args)
+    exit_code = paraviewer(
+        args.paraphase_dir,
+        args.ptcp_dir,
+        args.outdir,
+        args.pedigree,
+        args.include_only_samples,
+        args.exclude_samples,
+        args.include_only_regions,
+        args.exclude_regions,
+        args.max_reads_per_haplotype,
+        args.ref,
+        args.gtf,
+        args.clobber,
+        args.task_timeout,
+        args.threads,
+    )
+    sys.exit(exit_code or 0)
 
 
 if __name__ == "__main__":

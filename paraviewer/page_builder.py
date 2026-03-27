@@ -3,15 +3,16 @@
 """
 Create HTML viewer for Paraphase genomic variant results.
 """
+
 from __future__ import print_function
 
 import logging
 import os
+import shutil
 import sys
-from .__init__ import __version__
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-import shutil
+
 from .utils import RegionEntry
 
 logger = logging.getLogger(__name__)
@@ -124,5 +125,4 @@ def build_review_page(outdir: str, sample_entries: list[RegionEntry]):
     # Generate the HTML page
     write_site(table_data, outdir)
 
-    resultpath = os.path.join(outdir, "index.html")
-    logger.info(f"Open {resultpath} in your browser to view Paraphase results")
+    logger.info(f"Use `paraviewer deploy --outdir {outdir}` to serve the results")

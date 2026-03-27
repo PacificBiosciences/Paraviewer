@@ -1,21 +1,22 @@
 #!/usr/bin/env python
 
-from os import path, makedirs
-import pathlib
-import shutil
-import sys
-import json
-from typing import Optional
-from cachetools import LRUCache
-import pysam
-import yaml
 import gzip
+import json
 import logging
+import os
+import pathlib
+import sys
 from collections import namedtuple
+from os import makedirs, path
+from typing import Optional, Set
+
+import pysam
+from cachetools import LRUCache
 
 logger = logging.getLogger(__name__)
 
-REGION_PADDING = 1000
+# Fractional padding applied to realign regions (e.g., 0.10 == 10% of the target region)
+REGION_PADDING = 0.10
 
 # Define all namedtuples at module level
 RegionEntry = namedtuple(
@@ -30,13 +31,13 @@ RegionEntry = namedtuple(
         "BAI",
         "CopyNumber",
         "SpecialInfo",
-        "Image",
-        "IGVSession",
+        "OrographerHTML",
         "FamilyID",
         "PaternalID",
         "MaternalID",
         "Sex",
         "Phenotype",
+        "IsTrioSample",
     ],
 )
 PedigreeEntry = namedtuple(
@@ -50,9 +51,9 @@ HAVANNO_INFO = namedtuple(
     "HAVANNO_INFO", ["Haplotype", "PathogenicVariants", "Insertion", "Deletion"]
 )
 GenomicInterval = namedtuple("GenomicInterval", ["Chrom", "Start", "End"])
+RegionBamPaths = namedtuple("RegionBamPaths", ["BAM", "BAI"])
 
-IMAGES_PATH = "data/{sample}/images"
-IGV_SESSIONS_PATH = "data/{sample}/igv_sessions"
+OROGRAPHER_OUTPUT_PATH = "orographer_output"
 BAMS_PATH = "data/{sample}/bams"
 
 
@@ -72,11 +73,41 @@ def genomic_interval_from_str(region_str):
         return GenomicInterval(chrom_part, start, end)
 
     except ValueError as e:
-        raise ValueError(f"Invalid region format or values: {e}")
-    except Exception:
+        raise ValueError(f"Invalid region format or values: {e}") from e
+    except Exception as e:
         raise ValueError(
             "Input must be in the format 'chrN:start-end' with numeric coordinates."
+        ) from e
+
+
+def parse_phase_region(phase_region: str) -> "GenomicInterval":
+    """
+    Parse Paraphase phase_region strings, e.g. ``38:chr6:32013300-32046200``
+    (genome build prefix, chromosome, start-end).
+    """
+    s = phase_region.strip()
+    parts = s.split(":")
+    if len(parts) < 3:
+        raise ValueError(
+            f"phase_region must look like '38:chr6:start-end', got: {phase_region!r}"
         )
+    pos_part = parts[-1]
+    chrom = parts[-2]
+    try:
+        start_str, end_str = pos_part.split("-", 1)
+        start = int(start_str.replace(",", ""))
+        end = int(end_str.replace(",", ""))
+    except ValueError as e:
+        raise ValueError(f"Invalid phase_region coordinates: {phase_region!r}") from e
+    if start < 0 or end < 0:
+        raise ValueError("Coordinates must be non-negative.")
+    return GenomicInterval(chrom, start, end)
+
+
+OLD_PARAPHASE_NO_PHASE_REGION = (
+    "Paraphase JSON for region %r has no 'phase_region' field. "
+    "This output is from an older Paraphase version; rerun with paraphase >=v3.3.0"
+)
 
 
 def is_gzipped(putative_zipfile):
@@ -116,36 +147,6 @@ def unpack_json(json_filename):
                 return
 
 
-def get_config(genome_build, source_pipeline):
-    """
-    Read region config files and return as a dictionary.
-
-    Args:
-        genome_build (str): The genome build identifier (e.g., 'hg38', 'hg19')
-
-    Returns:
-        dict: The configuration data from the YAML file keyed by region name
-
-    Raises:
-        FileNotFoundError: If the config file doesn't exist
-        yaml.YAMLError: If the YAML file is malformed
-    """
-    assert source_pipeline in ["paraphase", "puretarget"]
-    data_path = path.join(path.dirname(__file__), "data", genome_build)
-    config_path = path.join(data_path, f"config_{source_pipeline}.yaml")
-
-    if not path.exists(config_path):
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-
-    try:
-        with open(config_path, "r") as f:
-            config_data = yaml.safe_load(f)
-        return config_data
-    except yaml.YAMLError as e:
-        logger.error(f"Error parsing YAML file {config_path}: {e}")
-        raise
-
-
 def is_mac():
     return sys.platform == "darwin"
 
@@ -176,56 +177,22 @@ def make_output_dirs(
     """
     data_dir = path.join(outdir, "data")
     if path == pathlib.Path("/") or path == pathlib.Path.home():
-        logger.error(
-            "For safety reasons, Paraviewer cannot output to root or home directories (`/` or $HOME)"
-        )
+        logger.error("Paraviewer cannot write to root or home (safety).")
         sys.exit()
 
     if path.exists(data_dir) and not clobber:
-        logger.error(
-            f"Output data directory {data_dir} already exists and --clobber is not set"
-        )
+        logger.error("Output data dir %s exists; use --clobber to overwrite.", data_dir)
         sys.exit(1)
 
     # Create the data directories for this sample
-    for new_path in (
-        path.join(outdir, IMAGES_PATH.format(sample=sample)),
-        path.join(outdir, IGV_SESSIONS_PATH.format(sample=sample)),
-        path.join(outdir, BAMS_PATH.format(sample=sample)),
-    ):
+    for new_path in (path.join(outdir, BAMS_PATH.format(sample=sample)),):
         if not path.exists(new_path):
             makedirs(new_path, exist_ok=True)
 
-
-def copy_trio_bams(
-    trio,
-    region,
-    outdir,
-    sample_bam,
-    paternal_bam,
-    maternal_bam,
-):
-    bams = []
-    new_bam_pattern = new_target_bam = path.join(
-        BAMS_PATH.format(sample=trio.IndividualID + "-trio"),
-        "{}_{}.bam",
-    )
-    for sample, bam in (
-        (trio.PaternalID, paternal_bam),
-        (trio.MaternalID, maternal_bam),
-        (trio.IndividualID, sample_bam),
-    ):
-        bam = path.join(outdir, bam)
-        bai = bam + ".bai"
-        new_target_bam = path.join(new_bam_pattern.format(sample, region))
-        new_target_bai = new_target_bam + ".bai"
-
-        shutil.copy(bam, path.join(outdir, new_target_bam))
-        shutil.copy(bai, path.join(outdir, new_target_bai))
-
-        bams.append(new_target_bam)
-
-    return bams
+    # Create orographer output directory (shared across all samples)
+    orographer_output_dir = path.join(outdir, OROGRAPHER_OUTPUT_PATH)
+    if not path.exists(orographer_output_dir):
+        makedirs(orographer_output_dir, exist_ok=True)
 
 
 def split_bam(
@@ -238,8 +205,8 @@ def split_bam(
     max_reads_per_hap: int,
 ) -> dict:
     """
-    Split a BAM file into smaller chunks based on RN tags for improved IGV visualization.
-    Each haplotype is allowed at most max_reads_per_hap reads.
+    Split BAM into chunks by RN tags for Orographer.
+    Max max_reads_per_hap per haplotype.
 
     Args:
         bam_path: Path to the input BAM file
@@ -252,7 +219,6 @@ def split_bam(
     """
     # Create an LRU cache for file handles with max size of 5
     region_files_cache = LRUCache(maxsize=5)
-    region_bam_paths = namedtuple("RegionBamPaths", ["BAM", "BAI"])
     result_abs_paths = {}
     result_relative_paths = {}
     new_bam_pattern = path.join(BAMS_PATH.format(sample=sample), "{}_{}.bam")
@@ -302,9 +268,10 @@ def split_bam(
                     haplotype_read_counts[hp] += 1
             for hap in haplotype_read_counts:
                 logger.debug(
-                    "{} haplotype {}: {} reads".format(
-                        sample, hap, haplotype_read_counts[hap]
-                    )
+                    "%s haplotype %s: %s reads",
+                    sample,
+                    hap,
+                    haplotype_read_counts[hap],
                 )
 
     finally:
@@ -314,7 +281,7 @@ def split_bam(
 
         for region_name, bam_path in result_abs_paths.items():
             pysam.index(bam_path)
-            result_relative_paths[region_name] = region_bam_paths(
+            result_relative_paths[region_name] = RegionBamPaths(
                 BAM=new_bam_pattern.format(sample, region_name),
                 BAI=new_bam_pattern.format(sample, region_name) + ".bai",
             )
@@ -331,3 +298,68 @@ def strip_suffix_from_path(path_str: str, suffix: str) -> str:
         new_name = path_obj.name[: -len(suffix)]
         return str(path_obj.with_name(new_name))
     return path_str
+
+
+def find_vcf_file(
+    paraphase_dir: str,
+    sample: str,
+    region: str,
+    is_puretarget: bool = False,
+) -> Optional[str]:
+    """
+    Find VCF file for a given sample and region in paraphase directory structure.
+
+    Args:
+        paraphase_dir: Path to paraphase directory (or ptcp directory for puretarget)
+        sample: Sample name
+        region: Region name
+        is_puretarget: If True, look in {sample}_paraphase subdirectory
+
+    Returns:
+        Path to VCF file if found, None otherwise
+    """
+    if is_puretarget:
+        # Puretarget: ptcp_dir/{sample}_paraphase/{sample}_paraphase_vcfs/
+        vcf_dir = path.join(
+            paraphase_dir, f"{sample}_paraphase", f"{sample}_paraphase_vcfs"
+        )
+    else:
+        # For paraphase: {paraphase_dir}/{sample}_paraphase_vcfs/{sample}_{region}.vcf
+        vcf_dir = path.join(paraphase_dir, f"{sample}_paraphase_vcfs")
+
+    # Try both .vcf and .vcf.gz extensions
+    vcf_candidates = [
+        path.join(vcf_dir, f"{sample}_{region}.vcf"),
+        path.join(vcf_dir, f"{sample}_{region}.vcf.gz"),
+    ]
+
+    for vcf_path in vcf_candidates:
+        if path.exists(vcf_path) and path.isfile(vcf_path):
+            return vcf_path
+
+    return None
+
+
+def delete_bam(bam_path: str):
+    """
+    Delete BAM and its paired BAI index (if present) to reduce disk size.
+
+    Args:
+        bam_path: Absolute BAM or BAI file path to delete (pair inferred)
+    """
+    candidates: Set[str] = {bam_path}
+    if bam_path.endswith(".bam"):
+        candidates.add(bam_path + ".bai")
+    elif bam_path.endswith(".bai"):
+        # delete paired BAM if looks like *.bam.bai or generic .bai
+        if bam_path.endswith(".bam.bai"):
+            candidates.add(bam_path[:-4])
+        else:
+            candidates.add(bam_path[:-4])
+
+    for filepath in candidates:
+        try:
+            if path.exists(filepath) and path.isfile(filepath):
+                os.remove(filepath)
+        except OSError as os_error:
+            logger.warning(f"Failed to delete {filepath}: {os_error}")
