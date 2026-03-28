@@ -1,0 +1,22 @@
+tmpdir/
+.DS_Store
+
+# Python cache and bytecode
+__pycache__/
+
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+.pixi/
+.venv/
+
+# test artifacts
+.tmp_test/
+out_tmp/
+.coverage
+coverage.xml
+htmlcov/
+.venv_cov/

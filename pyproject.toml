@@ -19,14 +19,9 @@ classifiers = [
     "License :: Other/Proprietary License",
 ]
 dependencies = [
-    "matplotlib>=3.8.4",
-    "numpy>=2.2.5",
-    "scikit-image>=0.24.0",
-    "cython>=3.0.10",
     "Jinja2==3.1.6",
-    "requests==2.32.3",
     "cachetools==5.5.2",
-    "pysam==0.23.0"
+    "pysam==0.23.0",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +33,7 @@ dev = [
     "mypy",
     "ruff",
     "pre-commit",
+    "scikit-image>=0.24.0",
 ]
 
 [project.scripts]
