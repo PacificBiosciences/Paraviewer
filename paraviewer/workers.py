@@ -3,8 +3,6 @@ Top-level, stateless worker functions for multiprocessing.
 All functions and task types are picklable (no closures; plain data).
 """
 
-from __future__ import print_function
-
 import logging
 from collections import namedtuple
 from os import path
@@ -14,12 +12,20 @@ from orographer.utils import OutputConfig
 
 from paraviewer.utils import (
     OROGRAPHER_OUTPUT_PATH,
+    RegionBamPaths,
     split_bam,
 )
 
 logger = logging.getLogger(__name__)
 
 PARAPHASE_REGION_TYPE = "paraphase"
+
+# Positional indices in the bam_paths / vcf_paths lists for trio plots.
+# Order matches how process_paraphase.make_trio_table_entries constructs the lists:
+# [paternal_paths.BAM, maternal_paths.BAM, proband_paths.BAM]
+_TRIO_IDX_PATERNAL = 0
+_TRIO_IDX_MATERNAL = 1
+_TRIO_IDX_PROBAND = 2
 
 # Picklable task DTOs: plain strings/ints/bools or lists of strings
 SplitBamArgs = namedtuple(
@@ -74,14 +80,12 @@ TrioPlotTask = namedtuple(
 )
 
 
-def split_bam_worker(args: SplitBamArgs):
+def split_bam_worker(args: SplitBamArgs) -> dict[str, RegionBamPaths]:
     """
     Run split_bam for one sample. Returns dict[region_name] -> RegionBamPaths(BAM, BAI).
     Raises on failure (all-or-nothing).
     """
-    include_regions = (
-        list(args.include_only_regions) if args.include_only_regions else None
-    )
+    include_regions = list(args.include_only_regions) if args.include_only_regions else None
     exclude_regions = list(args.exclude_regions) if args.exclude_regions else None
     result = split_bam(
         args.bam_path,
@@ -97,7 +101,7 @@ def split_bam_worker(args: SplitBamArgs):
     return result
 
 
-def generate_single_plot_worker(task: SinglePlotTask):
+def generate_single_plot_worker(task: SinglePlotTask) -> tuple[int, str]:
     """
     Run orographer for one single-sample region. Returns (task.index, html_path_rel).
     Raises on failure or if output file is missing.
@@ -125,16 +129,18 @@ def generate_single_plot_worker(task: SinglePlotTask):
     return (task.index, html_path_rel)
 
 
-def generate_trio_plot_worker(task: TrioPlotTask):
+def generate_trio_plot_worker(task: TrioPlotTask) -> tuple[int, str]:
     """
     Run orographer for one trio (3 BAMs). Returns (task.index, html_path_rel).
     Raises on failure or if output file is missing.
     """
     coordinate_str = f"{task.chrom}:{task.start}-{task.end}"
-    proband_bam = task.bam_paths[2]
-    other_bam_files = [task.bam_paths[0], task.bam_paths[1]]
+    proband_bam = task.bam_paths[_TRIO_IDX_PROBAND]
+    other_bam_files = [task.bam_paths[_TRIO_IDX_PATERNAL], task.bam_paths[_TRIO_IDX_MATERNAL]]
     other_vcf_files = (
-        [task.vcf_paths[0], task.vcf_paths[1]] if task.vcf_paths else [None, None]
+        [task.vcf_paths[_TRIO_IDX_PATERNAL], task.vcf_paths[_TRIO_IDX_MATERNAL]]
+        if task.vcf_paths
+        else [None, None]
     )
     output_config = OutputConfig(task.output_dir, task.prefix)
     sample_label = f"Proband ({task.proband_id})"
@@ -150,7 +156,9 @@ def generate_trio_plot_worker(task: TrioPlotTask):
         output_config=output_config,
         gtf_file=task.gtf,
         vcf_file=(
-            task.vcf_paths[2] if task.vcf_paths and len(task.vcf_paths) > 2 else None
+            task.vcf_paths[_TRIO_IDX_PROBAND]
+            if task.vcf_paths and len(task.vcf_paths) > _TRIO_IDX_PROBAND
+            else None
         ),
         other_bam_files=other_bam_files,
         other_vcf_files=other_vcf_files,

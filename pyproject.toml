@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "paraviewer"
-version = "1.0.0"
+version = "1.1.0"
 description = "command line tool for generating visualizations of outputs from the Paraphase variant caller"
 readme = "readme.md"
 requires-python = ">=3.10"
@@ -19,9 +19,14 @@ classifiers = [
     "License :: Other/Proprietary License",
 ]
 dependencies = [
-    "Jinja2==3.1.6",
+    "matplotlib>=3.8.4",
+    "numpy>=2.2.5",
+    "scikit-image>=0.24.0",
+    "cython>=3.0.10",
+    "Jinja2==3.1.5",
+    "requests==2.32.3",
     "cachetools==5.5.2",
-    "pysam==0.23.0",
+    "pysam==0.23.0"
 ]
 
 [project.optional-dependencies]
@@ -33,7 +38,6 @@ dev = [
     "mypy",
     "ruff",
     "pre-commit",
-    "scikit-image>=0.24.0",
 ]
 
 [project.scripts]
@@ -48,23 +52,6 @@ include = [
     "LICENSE",
     "readme.md",
 ]
-
-# Pixi: conda (orographer) + PyPI (paraviewer and deps). E2E: pixi run e2e
-[tool.pixi.workspace]
-channels = ["conda-forge", "bioconda"]
-platforms = ["linux-64", "osx-arm64", "osx-64"]
-
-[tool.pixi.dependencies]
-orographer = "==0.1.0"
-
-[tool.pixi.pypi-dependencies]
-paraviewer = { path = ".", editable = true }
-
-[tool.pixi.environments]
-default = { features = ["dev"], solve-group = "default" }
-
-[tool.pixi.tasks]
-e2e = "bash tests/scripts/run_end_to_end_tests.sh"
 
 [tool.hatch.envs.default]
 dependencies = [

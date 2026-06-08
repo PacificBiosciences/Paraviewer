@@ -1,10 +1,10 @@
 import logging
 from glob import glob
 from os import path
-from typing import Dict
 
 from paraviewer.process_paraphase import get_paraphase_results
 from paraviewer.utils import (
+    ParaphaseResults,
     PedigreeEntry,
     parse_sample_name_from_paraphase_output,
     strip_suffix_from_path,
@@ -18,8 +18,8 @@ def get_puretarget_results(
     puretarget_dir: str,
     include_only_samples: list[str],
     exclude_samples: list[str],
-    pedigree_dict: Dict[str, PedigreeEntry],
-):
+    pedigree_dict: dict[str, PedigreeEntry],
+) -> dict[str, ParaphaseResults]:
     """
     Validates that expected result files are where
     they should be and returns their paths. For each included sample, should find:
@@ -45,16 +45,14 @@ def get_puretarget_results(
 
         havanno_json_path = base_dirname + ".havanno.json"
         havanno_special_info = get_havanno_annotations(havanno_json_path)
-        sample_results[sample] = sample_results[sample]._replace(
-            HAVANNO=havanno_special_info
-        )
+        sample_results[sample] = sample_results[sample]._replace(HAVANNO=havanno_special_info)
 
         all_results.update(sample_results)
 
     return all_results
 
 
-def get_f8_inv_annotation(f8_json_path):
+def get_f8_inv_annotation(f8_json_path: str) -> str:
     """
     read the sample-associated file from the f8inversion.json
     and add annotation for the inversion
@@ -70,7 +68,7 @@ def get_f8_inv_annotation(f8_json_path):
     return f8_inv_annotation
 
 
-def get_havanno_annotations(havanno_json_path):
+def get_havanno_annotations(havanno_json_path: str) -> dict[str, str]:
     """
     read the sample-associated file from the havanno.json
     and return dict of special info strings by region name
@@ -94,9 +92,7 @@ def get_havanno_annotations(havanno_json_path):
             haplotype_annotations = []
 
             if pathogenic_variant_count and pathogenic_variant_count > 0:
-                haplotype_annotations.append(
-                    f"{pathogenic_variant_count} possible pathogenic vars"
-                )
+                haplotype_annotations.append(f"{pathogenic_variant_count} possible pathogenic vars")
 
             if insertion_size and insertion_size > 0:
                 haplotype_annotations.append(f"{insertion_size}bp INS")
@@ -105,9 +101,7 @@ def get_havanno_annotations(havanno_json_path):
                 haplotype_annotations.append(f"{deletion_size}bp DEL")
             if len(haplotype_annotations) > 0:
                 haplotype_annotations = ", ".join(haplotype_annotations)
-                region_havanno_annotations.append(
-                    f"{haplotype},{haplotype_annotations}"
-                )
+                region_havanno_annotations.append(f"{haplotype},{haplotype_annotations}")
         if len(region_havanno_annotations) > 0:
             results[region] = ";".join(region_havanno_annotations)
 

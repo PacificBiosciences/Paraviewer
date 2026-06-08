@@ -2,7 +2,6 @@ import logging
 import sys
 from glob import glob
 from os import path
-from typing import Dict, Optional
 
 from paraviewer.special_info import get_special_info
 from paraviewer.utils import (
@@ -11,7 +10,9 @@ from paraviewer.utils import (
     REGION_PADDING,
     ParaphaseResults,
     PedigreeEntry,
+    RegionBamPaths,
     RegionEntry,
+    normalize_region_data,
     parse_phase_region,
     parse_sample_name_from_paraphase_output,
     unpack_json,
@@ -24,8 +25,8 @@ def get_paraphase_results(
     paraphase_dir: str,
     include_only_samples: list[str],
     exclude_samples: list[str],
-    pedigree_dict: Dict[str, PedigreeEntry],
-):
+    pedigree_dict: dict[str, PedigreeEntry],
+) -> dict[str, ParaphaseResults] | None:
     """
     Validates that expected result files are where
     they should be and returns their paths. For each included sample, should find:
@@ -41,7 +42,7 @@ def get_paraphase_results(
         path.join(paraphase_dir, "*paraphase.json.gz")
     )
     if not json_matches or len(json_matches) < 1:
-        logger.warning("No JSON result file found in {}".format(paraphase_dir))
+        logger.warning(f"No JSON result file found in {paraphase_dir}")
         return
     for json_filename in json_matches:
         sample = parse_sample_name_from_paraphase_output(json_filename)
@@ -53,15 +54,15 @@ def get_paraphase_results(
             continue
 
         # check BAM file
-        bam_name = path.join(paraphase_dir, "{}.paraphase.bam".format(sample))
+        bam_name = path.join(paraphase_dir, f"{sample}.paraphase.bam")
         if not path.isfile(bam_name):
-            logger.warning("No BAM result file found in {}".format(paraphase_dir))
+            logger.warning(f"No BAM result file found in {paraphase_dir}")
             continue
 
         # check BAI file
-        bai_name = path.join(paraphase_dir, "{}.paraphase.bam.bai".format(sample))
+        bai_name = path.join(paraphase_dir, f"{sample}.paraphase.bam.bai")
         if not path.isfile(bai_name):
-            logger.warning("No BAM index file found in {}".format(paraphase_dir))
+            logger.warning(f"No BAM index file found in {paraphase_dir}")
             continue
 
         all_results[sample] = ParaphaseResults(
@@ -83,9 +84,9 @@ def make_trio_table_entries(
     proband_paraphase_results: ParaphaseResults,
     paternal_paraphase_results: ParaphaseResults,
     maternal_paraphase_results: ParaphaseResults,
-    all_split_bams: Dict[str, str],
+    all_split_bams: dict[str, dict[str, RegionBamPaths]],
     outdir: str,
-):
+) -> list[RegionEntry]:
     """
     Reads the info that will be used for page building from trio paraphase jsons
     and creates namedtuples for the table rows.
@@ -103,7 +104,7 @@ def make_trio_table_entries(
 
     trio_entries = []
     for region in proband_paraphase_json_calls:
-        proband_region_data = proband_paraphase_json_calls[region]
+        proband_region_data = normalize_region_data(proband_paraphase_json_calls[region])
 
         if (
             region not in all_split_bams[trio.IndividualID]
@@ -119,9 +120,11 @@ def make_trio_table_entries(
         bam_paths = [paternal_paths.BAM, maternal_paths.BAM, proband_paths.BAM]
         bai_paths = [paternal_paths.BAI, maternal_paths.BAI, proband_paths.BAI]
 
-        phase_region = proband_region_data.get("phase_region") if isinstance(
-            proband_region_data, dict
-        ) else None
+        phase_region = (
+            proband_region_data.get("phase_region")
+            if isinstance(proband_region_data, dict)
+            else None
+        )
         if not phase_region:
             logger.error(OLD_PARAPHASE_NO_PHASE_REGION, region)
             sys.exit(1)
@@ -174,10 +177,10 @@ def make_trio_table_entries(
 
 def make_table_entries(
     paraphase_results: ParaphaseResults,
-    pedigree_entry: Optional[PedigreeEntry],
-    split_bams: Dict[str, str],
+    pedigree_entry: PedigreeEntry | None,
+    split_bams: dict[str, RegionBamPaths],
     is_trio_sample: bool,
-):
+) -> list[RegionEntry]:
     """
     Reads the info that will be used for page building from a json file
     and creates namedtuples for the table rows.
@@ -193,7 +196,7 @@ def make_table_entries(
 
     sample_entries = []
     for region in paraphase_json_calls:
-        region_data = paraphase_json_calls[region]
+        region_data = normalize_region_data(paraphase_json_calls[region])
         if region not in split_bams:
             continue
         bam_path = split_bams[region].BAM
@@ -209,9 +212,7 @@ def make_table_entries(
             logger.error("Invalid phase_region for %r: %s", region, e)
             sys.exit(1)
 
-        total_cn, special_info = get_special_info(
-            region, region_data, paraphase_results
-        )
+        total_cn, special_info = get_special_info(region, region_data, paraphase_results)
 
         # Compute dynamic padding as 5% of region length
         region_len = max(0, realign_region.End - realign_region.Start)

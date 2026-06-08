@@ -1,7 +1,7 @@
 # User Guide
 
 ## Installation
-Paraviewer requires **Python 3.10+**. The generated site uses in-browser visualization via [orographer](https://github.com/PacificBiosciences/Orographer).
+Paraviewer requires **Python 3.10+** and dependencies declared in **`pyproject.toml`**. The generated site uses in-browser visualization via [orographer](https://github.com/PacificBiosciences/Orographer).
 
 We recommend installing from conda, for example via mamba:
 ```bash
@@ -11,7 +11,7 @@ mamba activate paraviewer_env
 
 You may also install from source:
 ```bash
-mamba create -n paraviewer_env pip "python>=3.10" "orographer>=0.1.0"
+mamba create -n paraviewer_env pip "python>=3.10"
 mamba activate paraviewer_env
 git clone https://github.com/PacificBiosciences/Paraviewer.git
 cd Paraviewer
@@ -27,7 +27,7 @@ You must pass **exactly one** of `--paraphase-dir` or `--ptcp-dir`, plus `--outd
 ```text
 $ paraviewer create --help
 
-ParaViewer v1.0.0
+ParaViewer v1.1.0
 usage: paraviewer create [-h] --outdir OUTDIR [--paraphase-dir PARAPHASE_DIR] [--ptcp-dir PTCP_DIR] --ref REF [--gtf GTF] [--include-only-regions INCLUDE_ONLY_REGIONS [INCLUDE_ONLY_REGIONS ...]]
                          [--exclude-regions EXCLUDE_REGIONS [EXCLUDE_REGIONS ...]] [--pedigree PEDIGREE] [--include-only-samples INCLUDE_ONLY_SAMPLES [INCLUDE_ONLY_SAMPLES ...]]
                          [--exclude-samples EXCLUDE_SAMPLES [EXCLUDE_SAMPLES ...]] [--max-reads-per-haplotype MAX_READS_PER_HAPLOTYPE] [--threads THREADS] [--clobber] [--verbose]
@@ -93,7 +93,7 @@ Either of these workflows will generate a new website directory at `{output dire
 ```bash
 $ paraviewer deploy -h
 
-ParaViewer v1.0.0
+ParaViewer v1.1.0
 usage: paraviewer deploy [-h] --outdir OUTDIR [--port PORT]
 
 Start a simple HTTP server to serve generated paraviewer HTML and orographer plots.
@@ -108,7 +108,7 @@ For the above PTCP usage, this would be:
 ```bash
 $ paraviewer deploy --outdir {same output directory path as used for the 'create' command}
 
-ParaViewer v1.0.0
+ParaViewer v1.1.0
 Serving plots from: my_dir
 Server running at http://localhost:8000/
 

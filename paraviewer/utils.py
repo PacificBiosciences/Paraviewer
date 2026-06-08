@@ -8,7 +8,6 @@ import pathlib
 import sys
 from collections import namedtuple
 from os import makedirs, path
-from typing import Optional, Set
 
 import pysam
 from cachetools import LRUCache
@@ -55,9 +54,12 @@ RegionBamPaths = namedtuple("RegionBamPaths", ["BAM", "BAI"])
 
 OROGRAPHER_OUTPUT_PATH = "orographer_output"
 BAMS_PATH = "data/{sample}/bams"
+# Maximum simultaneous open BAM file handles during region splitting.
+# Higher values speed up multi-region jobs but increase file descriptor usage.
+MAX_OPEN_BAM_HANDLES = 5
 
 
-def genomic_interval_from_str(region_str):
+def genomic_interval_from_str(region_str: str) -> GenomicInterval:
     """
     Given a string with a coordinate, return the coordinate as a GenomicInterval
     """
@@ -88,9 +90,7 @@ def parse_phase_region(phase_region: str) -> "GenomicInterval":
     s = phase_region.strip()
     parts = s.split(":")
     if len(parts) < 3:
-        raise ValueError(
-            f"phase_region must look like '38:chr6:start-end', got: {phase_region!r}"
-        )
+        raise ValueError(f"phase_region must look like '38:chr6:start-end', got: {phase_region!r}")
     pos_part = parts[-1]
     chrom = parts[-2]
     try:
@@ -110,7 +110,22 @@ OLD_PARAPHASE_NO_PHASE_REGION = (
 )
 
 
-def is_gzipped(putative_zipfile):
+def normalize_region_data(region_data: dict) -> dict:
+    """
+    Normalize paraphase region data across output format versions.
+
+    v4 moved specialty fields (gene_cn, alleles_final, fusions_called, …)
+    from the top level into a nested ``region_specific_info`` dict.
+    Merging that dict back to the top level lets all downstream code work
+    identically against v3 and v4 output.
+    """
+    extra = region_data.get("region_specific_info")
+    if not extra:
+        return region_data
+    return {**region_data, **extra}
+
+
+def is_gzipped(putative_zipfile: str) -> bool:
     """
     Check if file is zipped
     """
@@ -119,43 +134,41 @@ def is_gzipped(putative_zipfile):
         return id_bytes == b"\x1f\x8b"
 
 
-def unpack_json(json_filename):
+def unpack_json(json_filename: str) -> dict | None:
     """
     unpacks a json or json.gz file into a dict and returns it
     """
     if not (path.exists(json_filename) and path.isfile(json_filename)):
-        logger.warning(" {} does not exist".format(json_filename))
+        logger.warning(f" {json_filename} does not exist")
         return
     if json_filename.endswith(".gz"):
         if not is_gzipped(json_filename):
-            logger.warning(
-                "{} is identified as gzipped but is not".format(json_filename)
-            )
+            logger.warning(f"{json_filename} is identified as gzipped but is not")
             return
         with gzip.open(json_filename, "rt", encoding="UTF-8") as json_fh:
             try:
                 return json.load(json_fh)
             except json.decoder.JSONDecodeError:
-                logger.warning(" {} is empty or misformatted".format(json_filename))
+                logger.warning(f" {json_filename} is empty or misformatted")
                 return
     else:
-        with open(json_filename, "r") as json_fh:
+        with open(json_filename) as json_fh:
             try:
                 return json.load(json_fh)
             except json.decoder.JSONDecodeError:
-                logger.warning(" {} is empty or misformatted".format(json_filename))
+                logger.warning(f" {json_filename} is empty or misformatted")
                 return
 
 
-def is_mac():
+def is_mac() -> bool:
     return sys.platform == "darwin"
 
 
-def is_linux():
+def is_linux() -> bool:
     return sys.platform.startswith("linux")
 
 
-def parse_sample_name_from_paraphase_output(file_path):
+def parse_sample_name_from_paraphase_output(file_path: str) -> str:
     """
     Parse a sample name from a paraphase output file
     """
@@ -169,8 +182,8 @@ def parse_sample_name_from_paraphase_output(file_path):
 def make_output_dirs(
     outdir: str,
     sample: str,
-    clobber,
-):
+    clobber: bool,
+) -> None:
     """
     Create the expected output directory structure.
     If already exists and clobber is not set, exit.
@@ -200,8 +213,8 @@ def split_bam(
     bai_path: str,
     outdir: str,
     sample: str,
-    include_only_regions: Optional[str],
-    exclude_regions: Optional[str],
+    include_only_regions: str | None,
+    exclude_regions: str | None,
     max_reads_per_hap: int,
 ) -> dict:
     """
@@ -218,7 +231,7 @@ def split_bam(
         Dictionary mapping region names to namedtuples containing BAM and BAI paths
     """
     # Create an LRU cache for file handles with max size of 5
-    region_files_cache = LRUCache(maxsize=5)
+    region_files_cache = LRUCache(maxsize=MAX_OPEN_BAM_HANDLES)
     result_abs_paths = {}
     result_relative_paths = {}
     new_bam_pattern = path.join(BAMS_PATH.format(sample=sample), "{}_{}.bam")
@@ -235,10 +248,7 @@ def split_bam(
                     continue
 
                 region_name = read.get_tag("RN")
-                if (
-                    include_only_regions
-                    and region_name.lower() not in include_only_regions
-                ):
+                if include_only_regions and region_name.lower() not in include_only_regions:
                     continue
                 if exclude_regions and region_name.lower() in exclude_regions:
                     continue
@@ -305,7 +315,7 @@ def find_vcf_file(
     sample: str,
     region: str,
     is_puretarget: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Find VCF file for a given sample and region in paraphase directory structure.
 
@@ -320,9 +330,7 @@ def find_vcf_file(
     """
     if is_puretarget:
         # Puretarget: ptcp_dir/{sample}_paraphase/{sample}_paraphase_vcfs/
-        vcf_dir = path.join(
-            paraphase_dir, f"{sample}_paraphase", f"{sample}_paraphase_vcfs"
-        )
+        vcf_dir = path.join(paraphase_dir, f"{sample}_paraphase", f"{sample}_paraphase_vcfs")
     else:
         # For paraphase: {paraphase_dir}/{sample}_paraphase_vcfs/{sample}_{region}.vcf
         vcf_dir = path.join(paraphase_dir, f"{sample}_paraphase_vcfs")
@@ -340,14 +348,14 @@ def find_vcf_file(
     return None
 
 
-def delete_bam(bam_path: str):
+def delete_bam(bam_path: str) -> None:
     """
     Delete BAM and its paired BAI index (if present) to reduce disk size.
 
     Args:
         bam_path: Absolute BAM or BAI file path to delete (pair inferred)
     """
-    candidates: Set[str] = {bam_path}
+    candidates: set[str] = {bam_path}
     if bam_path.endswith(".bam"):
         candidates.add(bam_path + ".bai")
     elif bam_path.endswith(".bai"):

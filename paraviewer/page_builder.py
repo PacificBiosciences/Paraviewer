@@ -1,10 +1,7 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Create HTML viewer for Paraphase genomic variant results.
 """
-
-from __future__ import print_function
 
 import logging
 import os
@@ -18,7 +15,7 @@ from .utils import RegionEntry
 logger = logging.getLogger(__name__)
 
 
-def write_site(table_data, out_dir):
+def write_site(table_data: dict, out_dir: str) -> None:
     """
     Generate the HTML page for the viewer
 
@@ -58,16 +55,11 @@ def write_site(table_data, out_dir):
             sys.exit(1)
 
     # write index.html
-    with open("{out_dir}/index.html".format(out_dir=out_dir), "w") as fh:
-        print(
-            html_template.render(
-                data=table_data,
-            ),
-            file=fh,
-        )
+    with open(f"{out_dir}/index.html", "w") as fh:
+        fh.write(html_template.render(data=table_data))
 
 
-def generate_table(sample_entries: list[RegionEntry]):
+def generate_table(sample_entries: list[RegionEntry]) -> dict:
     """
     Convert sample_entries list to a list of data entries for the HTML table
 
@@ -107,7 +99,7 @@ def generate_table(sample_entries: list[RegionEntry]):
     return {"table_data": table_data, "has_pedigree_columns": has_pedigree_columns}
 
 
-def build_review_page(outdir: str, sample_entries: list[RegionEntry]):
+def build_review_page(outdir: str, sample_entries: list[RegionEntry]) -> None:
     """
     Generate a review html page for the paraphase results from one or more samples
 

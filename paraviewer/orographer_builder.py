@@ -1,20 +1,17 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Generate orographer HTML/JSON plots for display in web viewer
 """
 
-from __future__ import print_function
-
 import logging
 import os
 from os import path
-from typing import List, Optional
 
 from orographer.orographer import orographer
 from orographer.utils import OutputConfig
 
 from paraviewer.utils import OROGRAPHER_OUTPUT_PATH, RegionEntry, find_vcf_file
+from paraviewer.workers import _TRIO_IDX_MATERNAL, _TRIO_IDX_PATERNAL, _TRIO_IDX_PROBAND
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +22,10 @@ def generate_trio_plots_for_entry(
     region_entry: RegionEntry,
     outdir: str,
     reference_path: str,
-    gtf_file: Optional[str],
+    gtf_file: str | None,
     input_dir: str,
     is_puretarget: bool,
-) -> Optional[RegionEntry]:
+) -> RegionEntry | None:
     """
     Generate a single orographer plot with three BAMs (paternal, maternal, proband).
     Orographer plots them in one HTML (top to bottom: paternal, maternal, proband).
@@ -38,10 +35,9 @@ def generate_trio_plots_for_entry(
     paternal_id = region_entry.PaternalID
     maternal_id = region_entry.MaternalID
 
-    # region_entry.BAM is [paternal_rel, maternal_rel, proband_rel]
-    paternal_bam = path.join(outdir, region_entry.BAM[0])
-    maternal_bam = path.join(outdir, region_entry.BAM[1])
-    proband_bam = path.join(outdir, region_entry.BAM[2])
+    paternal_bam = path.join(outdir, region_entry.BAM[_TRIO_IDX_PATERNAL])
+    maternal_bam = path.join(outdir, region_entry.BAM[_TRIO_IDX_MATERNAL])
+    proband_bam = path.join(outdir, region_entry.BAM[_TRIO_IDX_PROBAND])
 
     for bam_path in (paternal_bam, maternal_bam, proband_bam):
         if not path.exists(bam_path):
@@ -55,15 +51,9 @@ def generate_trio_plots_for_entry(
     prefix = f"{region_entry.Sample}_{region_entry.Region}"
     output_config = OutputConfig(output_dir, prefix)
 
-    proband_vcf = find_vcf_file(
-        input_dir, proband_id, region_entry.Region, is_puretarget
-    )
-    paternal_vcf = find_vcf_file(
-        input_dir, paternal_id, region_entry.Region, is_puretarget
-    )
-    maternal_vcf = find_vcf_file(
-        input_dir, maternal_id, region_entry.Region, is_puretarget
-    )
+    proband_vcf = find_vcf_file(input_dir, proband_id, region_entry.Region, is_puretarget)
+    paternal_vcf = find_vcf_file(input_dir, paternal_id, region_entry.Region, is_puretarget)
+    maternal_vcf = find_vcf_file(input_dir, maternal_id, region_entry.Region, is_puretarget)
     other_bam_files = [paternal_bam, maternal_bam]
     other_vcf_files = [paternal_vcf, maternal_vcf]
     # Primary BAM = proband; others = paternal, maternal (top, middle, bottom)
@@ -106,10 +96,10 @@ def generate_single_plot_for_entry(
     region_entry: RegionEntry,
     outdir: str,
     reference_path: str,
-    gtf_file: Optional[str],
+    gtf_file: str | None,
     input_dir: str,
     is_puretarget: bool,
-) -> Optional[RegionEntry]:
+) -> RegionEntry | None:
     coordinate_str = f"{region_entry.Chrom}:{region_entry.Start}-{region_entry.End}"
     bam_file = path.join(outdir, region_entry.BAM)
     if not path.exists(bam_file):
@@ -124,9 +114,7 @@ def generate_single_plot_for_entry(
     prefix = f"{region_entry.Sample}_{region_entry.Region}"
     output_dir = path.join(outdir, OROGRAPHER_OUTPUT_PATH)
     output_config = OutputConfig(output_dir, prefix)
-    vcf_file = find_vcf_file(
-        input_dir, region_entry.Sample, region_entry.Region, is_puretarget
-    )
+    vcf_file = find_vcf_file(input_dir, region_entry.Sample, region_entry.Region, is_puretarget)
 
     orographer(
         region_type=PARAPHASE_REGION_TYPE,
@@ -143,8 +131,7 @@ def generate_single_plot_for_entry(
     )
 
     html_filename = (
-        f"{prefix}_{region_entry.Chrom}_{region_entry.Start}_"
-        f"{region_entry.End}_bokeh.html"
+        f"{prefix}_{region_entry.Chrom}_{region_entry.Start}_{region_entry.End}_bokeh.html"
     )
     html_path_rel = path.join(OROGRAPHER_OUTPUT_PATH, html_filename)
     html_full_path = path.join(outdir, html_path_rel)
@@ -161,13 +148,13 @@ def generate_single_plot_for_entry(
 
 
 def generate_orographer_plots(
-    sample_region_entries: List[RegionEntry],
+    sample_region_entries: list[RegionEntry],
     outdir: str,
     reference_path: str,
-    gtf_file: Optional[str],
+    gtf_file: str | None,
     input_dir: str,
     is_puretarget: bool,
-) -> List[RegionEntry]:
+) -> list[RegionEntry]:
     """
     Generate orographer HTML/JSON plots for each region entry.
 
@@ -190,7 +177,7 @@ def generate_orographer_plots(
     orographer_output_dir = path.join(outdir, OROGRAPHER_OUTPUT_PATH)
     os.makedirs(orographer_output_dir, exist_ok=True)
 
-    successful_entries: List[RegionEntry] = []
+    successful_entries: list[RegionEntry] = []
 
     for region_entry in sample_region_entries:
         try:

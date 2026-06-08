@@ -6,7 +6,6 @@ import shutil
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from os import path
-from typing import Dict, List, Optional, Tuple
 
 from paraviewer.orographer_builder import generate_orographer_plots
 from paraviewer.page_builder import build_review_page
@@ -41,9 +40,9 @@ TASK_TIMEOUT_SECONDS = 600
 
 
 def get_trio_samples(
-    pedigree_dict: Dict[str, PedigreeEntry],
-    all_paraphase_results: Dict[str, ParaphaseResults],
-) -> Tuple[Dict[str, PedigreeEntry], set]:
+    pedigree_dict: dict[str, PedigreeEntry],
+    all_paraphase_results: dict[str, ParaphaseResults],
+) -> tuple[dict[str, PedigreeEntry], set]:
     """
     Get the trio samples from the pedigree dictionary and the paraphase results.
 
@@ -68,17 +67,17 @@ def get_trio_samples(
 
 
 def read_pedigree_file(
-    ped_file: Optional[str],
+    ped_file: str | None,
     include_only_samples: list,
     exclude_samples: list,
-) -> Dict[str, PedigreeEntry]:
+) -> dict[str, PedigreeEntry]:
     """Read a GATK-format PED file and return a dictionary of PedigreeEntry objects."""
     if not ped_file or not path.exists(ped_file):
         return {}
 
     pedigree_dict = {}
     try:
-        with open(ped_file, "r") as ped_handle:
+        with open(ped_file) as ped_handle:
             for line in ped_handle:
                 line = line.strip()
                 if not line or line.startswith("#"):
@@ -134,18 +133,18 @@ def read_pedigree_file(
 
 def process_individual_sample(
     sample_paraphase_results: ParaphaseResults,
-    pedigree_dict: Dict[str, PedigreeEntry],
+    pedigree_dict: dict[str, PedigreeEntry],
     outdir: str,
     clobber: bool,
     include_only_regions: list,
     exclude_regions: list,
     max_reads_per_haplotype: int,
     reference_path: str,
-    gtf_file: Optional[str],
+    gtf_file: str | None,
     input_dir: str,
     is_puretarget: bool,
     is_trio_sample: bool,
-) -> Tuple[List[RegionEntry], dict]:
+) -> tuple[list[RegionEntry], dict]:
     """
     Process one sample: split BAM, build table entries, generate orographer plots.
     Used by tests and kept for compatibility; main pipeline uses workers.
@@ -161,9 +160,7 @@ def process_individual_sample(
         max_reads_per_haplotype,
     )
     if not split_bams:
-        raise ValueError(
-            "No specified regions found in %s." % sample_paraphase_results.BAM
-        )
+        raise ValueError(f"No specified regions found in {sample_paraphase_results.BAM}.")
 
     sample_region_entries = make_table_entries(
         sample_paraphase_results,
@@ -184,15 +181,15 @@ def process_individual_sample(
 
 def process_trio(
     trio: PedigreeEntry,
-    all_paraphase_results: Dict[str, ParaphaseResults],
-    all_split_bams: Dict[str, dict],
+    all_paraphase_results: dict[str, ParaphaseResults],
+    all_split_bams: dict[str, dict],
     outdir: str,
     clobber: bool,
     reference_path: str,
-    gtf_file: Optional[str],
+    gtf_file: str | None,
     input_dir: str,
     is_puretarget: bool,
-) -> List[RegionEntry]:
+) -> list[RegionEntry]:
     """
     Process one trio: build trio table entries, generate orographer plots.
     Used by tests and kept for compatibility; main pipeline uses workers.
@@ -217,10 +214,10 @@ def process_trio(
 
 
 def _run_stage_splits(
-    split_args_list: List[Tuple[str, SplitBamArgs]],
-    executor: Optional[ProcessPoolExecutor],
+    split_args_list: list[tuple[str, SplitBamArgs]],
+    executor: ProcessPoolExecutor | None,
     timeout: int,
-) -> Dict[str, dict]:
+) -> dict[str, dict]:
     """Run split_bam for all samples. Returns all_split_bams[sample][region]."""
     all_split_bams = {}
     if executor is None:
@@ -228,10 +225,7 @@ def _run_stage_splits(
             all_split_bams[sample] = split_bam_worker(args)
         return all_split_bams
 
-    futures = {
-        executor.submit(split_bam_worker, args): sample
-        for sample, args in split_args_list
-    }
+    futures = {executor.submit(split_bam_worker, args): sample for sample, args in split_args_list}
     try:
         for future in as_completed(futures.keys(), timeout=timeout):
             sample = futures[future]
@@ -254,11 +248,11 @@ def _run_stage_splits(
 
 
 def _run_stage_plots(
-    single_tasks: List[SinglePlotTask],
-    trio_tasks: List[TrioPlotTask],
-    executor: Optional[ProcessPoolExecutor],
+    single_tasks: list[SinglePlotTask],
+    trio_tasks: list[TrioPlotTask],
+    executor: ProcessPoolExecutor | None,
     timeout: int,
-) -> Tuple[Dict[int, str], Dict[int, str]]:
+) -> tuple[dict[int, str], dict[int, str]]:
     """
     Run plot workers. Returns (single_results, trio_results) index -> html_path.
     Raises on first failure.
@@ -393,9 +387,7 @@ def paraviewer(
         logger.error("No results found in input directory")
         return 1
 
-    trio_samples, trio_member_ids = get_trio_samples(
-        pedigree_dict, all_paraphase_results
-    )
+    trio_samples, trio_member_ids = get_trio_samples(pedigree_dict, all_paraphase_results)
 
     for sample in all_paraphase_results:
         make_output_dirs(outdir, sample, clobber)
@@ -453,14 +445,10 @@ def paraviewer(
 
         single_tasks = []
         for idx, entry in enumerate(single_entries):
-            bam_path = (
-                path.join(outdir, entry.BAM) if isinstance(entry.BAM, str) else None
-            )
+            bam_path = path.join(outdir, entry.BAM) if isinstance(entry.BAM, str) else None
             if bam_path is None:
                 continue
-            vcf_path = find_vcf_file(
-                input_dir, entry.Sample, entry.Region, is_puretarget
-            )
+            vcf_path = find_vcf_file(input_dir, entry.Sample, entry.Region, is_puretarget)
             prefix = f"{entry.Sample}_{entry.Region}"
             single_tasks.append(
                 SinglePlotTask(
@@ -502,15 +490,9 @@ def paraviewer(
                 path.join(outdir, entry.BAM[2]),
             ]
             proband_id = entry.Sample.replace("-trio", "")
-            vcf_paternal = find_vcf_file(
-                input_dir, entry.PaternalID, entry.Region, is_puretarget
-            )
-            vcf_maternal = find_vcf_file(
-                input_dir, entry.MaternalID, entry.Region, is_puretarget
-            )
-            vcf_proband = find_vcf_file(
-                input_dir, proband_id, entry.Region, is_puretarget
-            )
+            vcf_paternal = find_vcf_file(input_dir, entry.PaternalID, entry.Region, is_puretarget)
+            vcf_maternal = find_vcf_file(input_dir, entry.MaternalID, entry.Region, is_puretarget)
+            vcf_proband = find_vcf_file(input_dir, proband_id, entry.Region, is_puretarget)
             vcf_paths = [vcf_paternal, vcf_maternal, vcf_proband]
             prefix = f"{entry.Sample}_{entry.Region}"
             trio_tasks.append(
