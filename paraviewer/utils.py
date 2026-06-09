@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import pathlib
+import re
 import sys
 from collections import namedtuple
 from os import makedirs, path
@@ -57,6 +58,9 @@ BAMS_PATH = "data/{sample}/bams"
 # Maximum simultaneous open BAM file handles during region splitting.
 # Higher values speed up multi-region jobs but increase file descriptor usage.
 MAX_OPEN_BAM_HANDLES = 5
+PARAPHASE_MIN_VERSION = (3, 3, 3)
+PARAPHASE_MAX_VERSION_EXCLUSIVE = (4, 1, 0)
+SUPPORTED_PARAPHASE_VERSION_RANGE = "3.3.3 to 4.0.x"
 
 
 def genomic_interval_from_str(region_str: str) -> GenomicInterval:
@@ -108,6 +112,75 @@ OLD_PARAPHASE_NO_PHASE_REGION = (
     "Paraphase JSON for region %r has no 'phase_region' field. "
     "This output is from an older Paraphase version; rerun with paraphase >=v3.3.0"
 )
+
+
+def parse_version_tuple(version: str) -> tuple[int, int, int] | None:
+    """
+    Parse a semantic-ish version string into a 3-part integer tuple.
+    """
+    match = re.match(r"^v?(\d+)\.(\d+)(?:\.(\d+))?", version.strip())
+    if not match:
+        return None
+    major, minor, patch = match.groups()
+    return int(major), int(minor), int(patch or 0)
+
+
+def paraphase_version_is_supported(version: str) -> bool:
+    """
+    Return whether a Paraphase version is supported by this Paraviewer release.
+    """
+    parsed = parse_version_tuple(version)
+    if parsed is None:
+        return False
+    return PARAPHASE_MIN_VERSION <= parsed < PARAPHASE_MAX_VERSION_EXCLUSIVE
+
+
+def get_paraphase_version_from_bam(bam_path: str) -> str | None:
+    """
+    Read the Paraphase version from a BAM @PG header entry.
+    """
+    with pysam.AlignmentFile(bam_path, "rb") as bam:
+        header = bam.header.to_dict()
+    for program in header.get("PG", []):
+        if program.get("PN") == "paraphase":
+            return program.get("VN")
+    return None
+
+
+def warn_if_unsupported_paraphase_version(bam_path: str, sample: str) -> None:
+    """
+    Warn when a sample's Paraphase BAM reports an unsupported or unknown version.
+    """
+    try:
+        version = get_paraphase_version_from_bam(bam_path)
+    except (OSError, ValueError) as e:
+        logger.warning(
+            "Could not read Paraphase version from BAM header for sample %s (%s): %s",
+            sample,
+            bam_path,
+            e,
+        )
+        return
+
+    if not version:
+        logger.warning(
+            "No Paraphase version found in BAM @PG header for sample %s (%s); "
+            "supported Paraphase versions are %s",
+            sample,
+            bam_path,
+            SUPPORTED_PARAPHASE_VERSION_RANGE,
+        )
+        return
+
+    if not paraphase_version_is_supported(version):
+        logger.warning(
+            "Paraphase version %s for sample %s (%s) is outside the supported "
+            "range for this Paraviewer release: %s",
+            version,
+            sample,
+            bam_path,
+            SUPPORTED_PARAPHASE_VERSION_RANGE,
+        )
 
 
 def normalize_region_data(region_data: dict) -> dict:

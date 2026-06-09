@@ -16,6 +16,7 @@ from paraviewer.utils import (
     parse_phase_region,
     parse_sample_name_from_paraphase_output,
     unpack_json,
+    warn_if_unsupported_paraphase_version,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,8 @@ def get_paraphase_results(
         if not path.isfile(bai_name):
             logger.warning(f"No BAM index file found in {paraphase_dir}")
             continue
+
+        warn_if_unsupported_paraphase_version(bam_name, sample)
 
         all_results[sample] = ParaphaseResults(
             Sample=sample,
