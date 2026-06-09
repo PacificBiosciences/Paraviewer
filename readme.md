@@ -30,7 +30,7 @@ Want to try out the websites from Paraviewer? We've prepared two demo sites:
 * [PureTarget Carrier Panel Demo](https://pacificbiosciences.github.io/ParaviewerPTCPDemo): 19 [PureTarget Carrier Panel](https://www.pacb.com/wp-content/uploads/Application-note-Consolidate-challenging-genes-with-PureTarget-carrier-screen-panel.pdf) samples from Coriell.
 
 ## Support information
-Paraviewer is a pre-release software intended for research use only and not for use in diagnostic procedures. 
+Paraviewer is intended for research use only and not for use in diagnostic procedures. 
 While efforts have been made to ensure that Paraviewer lives up to the quality that PacBio strives for, we make no warranty regarding this software.
 
 As Paraviewer is not covered by any service level agreement or the like, please do not contact a PacBio Field Applications Scientists or PacBio Customer Service for assistance with any Paraviewer release. 
