@@ -4,9 +4,6 @@
 
 ## A viewer for [Paraphase](https://github.com/PacificBiosciences/paraphase)
 
-> [!WARNING]
-> **Please note:** Paraviewer is currently in active development and should be used for experimentation and feedback.
-
 Paraviewer reads the result directory from Paraphase and uses the files within (per-sample BAM, JSON, and VCF files) to generate a table-based web browser specific to the input data. Paraviewer assists in variant prioritization and haplotype review for the complex genomic regions called by Paraphase.
 
 ### Overview
@@ -30,7 +27,7 @@ Want to try out the websites from Paraviewer? We've prepared two demo sites:
 * [PureTarget Carrier Panel Demo](https://pacificbiosciences.github.io/ParaviewerPTCPDemo): 19 [PureTarget Carrier Panel](https://www.pacb.com/wp-content/uploads/Application-note-Consolidate-challenging-genes-with-PureTarget-carrier-screen-panel.pdf) samples from Coriell.
 
 ## Support information
-Paraviewer is a pre-release software intended for research use only and not for use in diagnostic procedures. 
+Paraviewer is intended for research use only and not for use in diagnostic procedures. 
 While efforts have been made to ensure that Paraviewer lives up to the quality that PacBio strives for, we make no warranty regarding this software.
 
 As Paraviewer is not covered by any service level agreement or the like, please do not contact a PacBio Field Applications Scientists or PacBio Customer Service for assistance with any Paraviewer release. 
