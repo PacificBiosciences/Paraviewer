@@ -4,7 +4,10 @@ import logging
 import os
 import shutil
 import sys
-from concurrent.futures import ProcessPoolExecutor, as_completed
+import time
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
+from concurrent.futures import wait
 from os import path
 
 from paraviewer.orographer_builder import generate_orographer_plots
@@ -37,6 +40,23 @@ logger = logging.getLogger(__name__)
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)
 
 TASK_TIMEOUT_SECONDS = 600
+
+
+def _timeout_message(stage_name: str, timeout: int, pending: list[str]) -> str:
+    return (
+        f"{stage_name} timed out after {timeout} seconds. "
+        "This usually means the input BAMs, selected regions, or trio plots need "
+        "more wall-clock time than the current Paraviewer task timeout. "
+        f"Retry with a larger value, for example: --task-timeout {timeout * 2}. "
+        f"Unfinished tasks: {pending}"
+    )
+
+
+def _executor_worker_count(executor: ProcessPoolExecutor, total_tasks: int) -> int:
+    if total_tasks == 0:
+        return 0
+    worker_count = getattr(executor, "_max_workers", total_tasks)
+    return max(1, min(worker_count, total_tasks))
 
 
 def get_trio_samples(
@@ -225,23 +245,50 @@ def _run_stage_splits(
             all_split_bams[sample] = split_bam_worker(args)
         return all_split_bams
 
-    futures = {executor.submit(split_bam_worker, args): sample for sample, args in split_args_list}
+    pending = list(split_args_list)
+    if not pending:
+        return all_split_bams
+    in_flight = {}
+    max_in_flight = _executor_worker_count(executor, len(pending))
+
+    def submit_next() -> None:
+        sample, args = pending.pop(0)
+        in_flight[executor.submit(split_bam_worker, args)] = (sample, time.monotonic())
+
     try:
-        for future in as_completed(futures.keys(), timeout=timeout):
-            sample = futures[future]
-            all_split_bams[sample] = future.result(timeout=timeout)
-    except TimeoutError:
-        pending_samples = [s for f, s in futures.items() if not f.done()]
-        logger.error(
-            "BAM split timed out (%s s). Samples that did not complete in time: %s",
-            timeout,
-            pending_samples,
-        )
-        for future in futures:
+        for _ in range(max_in_flight):
+            submit_next()
+
+        while in_flight:
+            done, _not_done = wait(
+                in_flight.keys(), timeout=1, return_when=FIRST_COMPLETED
+            )
+            for future in done:
+                sample, _started_at = in_flight.pop(future)
+                all_split_bams[sample] = future.result()
+                if pending:
+                    submit_next()
+
+            now = time.monotonic()
+            timed_out = [
+                sample
+                for future, (sample, started_at) in in_flight.items()
+                if now - started_at >= timeout
+            ]
+            if timed_out:
+                logger.error(_timeout_message("BAM split stage", timeout, timed_out))
+                for future in in_flight:
+                    future.cancel()
+                sys.exit(1)
+    except FuturesTimeoutError:
+        pending_samples = [s for s, _args in pending]
+        pending_samples.extend(sample for sample, _started_at in in_flight.values())
+        logger.error(_timeout_message("BAM split stage", timeout, pending_samples))
+        for future in in_flight:
             future.cancel()
         sys.exit(1)
     except Exception:
-        for future in futures:
+        for future in in_flight:
             future.cancel()
         raise
     return all_split_bams
@@ -269,46 +316,60 @@ def _run_stage_plots(
             trio_results[index] = html_path
         return single_results, trio_results
 
-    futures = []
-    task_by_future = {}
-    for task in single_tasks:
-        future = executor.submit(generate_single_plot_worker, task)
-        futures.append(future)
-        task_by_future[future] = ("single", task.index)
-    for task in trio_tasks:
-        future = executor.submit(generate_trio_plot_worker, task)
-        futures.append(future)
-        task_by_future[future] = ("trio", task.index)
+    pending = [("single", task) for task in single_tasks]
+    pending.extend(("trio", task) for task in trio_tasks)
+    if not pending:
+        return single_results, trio_results
+    in_flight = {}
+    max_in_flight = _executor_worker_count(executor, len(pending))
+
+    def task_label(kind: str, task: SinglePlotTask | TrioPlotTask) -> str:
+        if kind == "single":
+            return f"{task.sample}/{task.region}"
+        return f"{task.proband_id}-trio/{task.region}"
+
+    def submit_next() -> None:
+        kind, task = pending.pop(0)
+        if kind == "single":
+            future = executor.submit(generate_single_plot_worker, task)
+        else:
+            future = executor.submit(generate_trio_plot_worker, task)
+        in_flight[future] = (kind, task, task_label(kind, task), time.monotonic())
 
     try:
-        for future in as_completed(futures, timeout=timeout):
-            kind, _ = task_by_future[future]
-            result_index, html_path = future.result(timeout=timeout)
-            if kind == "single":
-                single_results[result_index] = html_path
-            else:
-                trio_results[result_index] = html_path
-    except TimeoutError:
-        pending = []
-        for future in futures:
-            if not future.done():
-                kind, idx = task_by_future[future]
+        for _ in range(max_in_flight):
+            submit_next()
+
+        while in_flight:
+            done, _not_done = wait(
+                in_flight.keys(), timeout=1, return_when=FIRST_COMPLETED
+            )
+            for future in done:
+                kind, _task, _label, _started_at = in_flight.pop(future)
+                result_index, html_path = future.result()
                 if kind == "single":
-                    t = single_tasks[idx]
-                    pending.append(f"{t.sample}/{t.region}")
+                    single_results[result_index] = html_path
                 else:
-                    t = trio_tasks[idx]
-                    pending.append(f"{t.proband_id}-trio/{t.region}")
-        logger.error(
-            "Plot generation timed out (%s s). Tasks that did not complete in time: %s",
-            timeout,
-            pending,
-        )
-        for future in futures:
-            future.cancel()
+                    trio_results[result_index] = html_path
+                if pending:
+                    submit_next()
+
+            now = time.monotonic()
+            timed_out = [
+                label
+                for future, (_kind, _task, label, started_at) in in_flight.items()
+                if now - started_at >= timeout
+            ]
+            if timed_out:
+                message = _timeout_message("Plot generation stage", timeout, timed_out)
+                logger.error(message)
+                for future in in_flight:
+                    future.cancel()
+                raise FuturesTimeoutError(message)
+    except FuturesTimeoutError:
         raise
     except Exception:
-        for future in futures:
+        for future in in_flight:
             future.cancel()
         raise
 
@@ -543,7 +604,7 @@ def paraviewer(
             outdir,
         )
         return 130
-    except (TimeoutError, Exception) as pipeline_error:
+    except (FuturesTimeoutError, Exception) as pipeline_error:
         if executor is not None:
             executor.shutdown(wait=False)
         logger.exception("Pipeline failed: %s; exiting.", pipeline_error)
