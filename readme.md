@@ -7,7 +7,7 @@
 Paraviewer reads the result directory from Paraphase and uses the files within (per-sample BAM, JSON, and VCF files) to generate a table-based web browser specific to the input data. Paraviewer assists in variant prioritization and haplotype review for the complex genomic regions called by Paraphase.
 
 ### Overview
-Paraviewer can be installed from source and run on Mac or Linux systems. It requires an output directory from Paraphase or PTCP as input and generates a self-contained website for easy result review.
+Paraviewer can be installed from source or Bioconda and run on Mac or Linux systems. It requires an output directory from Paraphase or PTCP as input and generates a self-contained website for easy result review.
 
 For details, see [User Guide](docs/user_guide.md)
 
