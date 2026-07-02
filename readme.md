@@ -4,9 +4,6 @@
 
 ## A viewer for [Paraphase](https://github.com/PacificBiosciences/paraphase)
 
-> [!WARNING]
-> **Please note:** Paraviewer is currently in active development and should be used for experimentation and feedback.
-
 Paraviewer reads the result directory from Paraphase and uses the files within (per-sample BAM, JSON, and VCF files) to generate a table-based web browser specific to the input data. Paraviewer assists in variant prioritization and haplotype review for the complex genomic regions called by Paraphase.
 
 ### Overview
